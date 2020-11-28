@@ -272,7 +272,7 @@ def train(data_loader, epoch, Hnet, Rnet, criterion):
 
         # 打印日志，保存结果图，保存模型
         # print log
-        if (epoch % opt.loss_freq == 0) | (epoch == opt.epochs - 1):
+        if (epoch % opt.loss_freq == 0) or (epoch == opt.epochs - 1):
             epoch_time = time.time() - start_time
             if phase == 'train':
                 epoch_log = 'train:' + '\n'
@@ -290,7 +290,7 @@ def train(data_loader, epoch, Hnet, Rnet, criterion):
             print_log(epoch_log, logPath)
 
         # save pictures and 差异图片
-        if (epoch % opt.result_freq == 0) | (epoch == opt.epochs - 1):
+        if (epoch % opt.result_freq == 0) or (epoch == opt.epochs - 1):
             if phase == 'train':
                 save_pic(phase, cover_img, stego, secret_img, secret_rev, opt.result_pics, opt.batch_size, epoch)
             if phase == 'valid':
@@ -298,7 +298,7 @@ def train(data_loader, epoch, Hnet, Rnet, criterion):
 
         # save model params
         if phase == 'train':
-            if epoch % opt.checkpoint_freq == 0 | epoch == opt.epochs - 1:
+            if epoch % opt.checkpoint_freq == 0 or epoch == opt.epochs - 1:
                 torch.save(
                     Hnet.state_dict(),
                     os.path.join(opt.checkpoint_path, 'H_epoch%04d_sumloss=%.6f.pth' % (epoch, train_SumLosses.avg))
