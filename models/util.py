@@ -331,6 +331,7 @@ class DirectoryDataset(Dataset):
         cover_path='images/train',
         secret_path='secret_img',
         data_extensions=['.hdr', '.exr', '.jpeg'],
+        # data_extensions=['.hdr', '.exr'],
         preprocess=None,
     ):
         super(DirectoryDataset, self).__init__()

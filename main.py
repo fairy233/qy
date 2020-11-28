@@ -20,12 +20,11 @@ from models.RNet import RNet
 from models.AverageMeter import AverageMeter
 import numpy as np
 
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--dataset', default="train", help='train | valid | test')
-    parser.add_argument(
-        '--batch_size', type=int, default=4, help='Batch size.'
+        '--batch_size', type=int, default=16, help='Batch size.'
     )
     parser.add_argument(
         '--image_size', type=int, default=320, help='image size'
@@ -43,11 +42,19 @@ def parse_args():
         '--debug', type=bool, default=False, help='debug mode do not create folders'
     )
     parser.add_argument(
+        '--lr', type=float, default=0.001, help='learning rate, default=0.001'
+    )
+    parser.add_argument(
+        '--beta1', type=float, default=0.9, help='beta1 for adam. default=0.5'
+    )
+    parser.add_argument(
+        '--beta2', type=float, default=0.999, help='beta2 for adam. default=0.999')
+    parser.add_argument(
         # 路径可为'./test_pics'
         '--test', default='', help='test mode, you need give the test pics dirs in this param'
     )
     parser.add_argument(
-        '--beta', type=float, default=0.5, help='hyper parameter of loss_sum'
+        '--beta', type=float, default=0.75, help='hyper parameter of loss_sum'
     )
     parser.add_argument(
         '--epochs', type=int, default=200, help='the num of training times'
@@ -76,11 +83,15 @@ def parse_args():
         '--test_pics', default='./test', help='folder to output test images'
     )
     parser.add_argument(
-        # './training1025/checkPoints/H_epoch0150_sumloss=0.001211.pth'
+        '--test_log', default='./test/testLog.txt', help='test log'
+    )
+    parser.add_argument(
+        # './training1125/checkPoints/H_epoch0150_sumloss=0.001211.pth'
+        # "./training1126/checkPoints/H_epoch0150_sumloss=0.000614.pth"
         '--Hnet', default='', help="path to Hidenet (to continue training)"
     )
     parser.add_argument(
-        # './training1025/checkPoints/R_epoch0150_sumloss=0.001211.pth'
+        # './training1125/checkPoints/R_epoch0150_sumloss=0.001211.pth'
         '--Rnet', default='', help="path to Revealnet (to continue training)"
     )
 
@@ -89,7 +100,10 @@ def parse_args():
 
 # TODO: 对输入图像的预处理的函数
 def transforms(hdr):
-    hdr = cv2.resize(hdr, (320, 320))
+    # hdr = cv2.resize(hdr, (320, 320))
+    h = int(hdr.shape[0] / 2) - int(opt.image_size / 2)
+    w = int(hdr.shape[1] / 2) - int(opt.image_size / 2)
+    hdr = hdr[h: h+opt.image_size, w: w+opt.image_size]
     # maxvalue1 = np.max(hdr)
     # hdr = hdr / maxvalue1  # 归一化，将像素值映射到[0,1]
     hdr = map_range(hdr, 0, 1)    # black
@@ -129,9 +143,6 @@ def save_pic(phase, cover, stego, secret, secret_rev, save_path, batch_size, epo
         stego = torch2cv(stego)
         secret_rev = torch2cv(secret_rev)
 
-        cover_diff = cover - stego
-        secret_diff = secret - secret_rev
-
         #  np.vstack  np.hstack
         showContainer = np.hstack((cover, stego))
         showReveal = np.hstack((secret, secret_rev))
@@ -142,32 +153,37 @@ def save_pic(phase, cover, stego, secret, secret_rev, save_path, batch_size, epo
         secret_ldr = (hdr2ldr(secret) * 255).astype(int)
         stego_ldr = (hdr2ldr(stego) * 255).astype(int)
         secret_rev_ldr = (hdr2ldr(secret_rev) * 255).astype(int)
-
-        cover_diff_ldr = (hdr2ldr(cover_diff) * 255).astype(int)
-        secret_diff_ldr = (hdr2ldr(secret_diff) * 255).astype(int)
-
+        
         showContainer_ldr = np.hstack((cover_ldr, stego_ldr))
         showReveal_ldr = np.hstack((secret_ldr, secret_rev_ldr))
         resultImg_ldr = np.vstack((showContainer_ldr, showReveal_ldr))
+        
+        cover_diff = cover - stego
+        secret_diff = secret - secret_rev
+        
+        # diff图像，只在test中保存，且只保存hdr格式
+        # cover_diff_ldr = (hdr2ldr(cover_diff) * 255).astype(int)
+        # secret_diff_ldr = (hdr2ldr(secret_diff) * 255).astype(int)
+        # diffImg_ldr = np.vstack((cover_diff_ldr, secret_diff_ldr))
 
-        diffImg_ldr = np.vstack((cover_diff_ldr, secret_diff_ldr))
-
-        if phase == 'train':
-            resultImgName = '%s/trainResult_epoch%04d_batch%02d.hdr' % (save_path, epoch, batch_size)
-            diffImgName = '%s/train_diff_epoch%04d_batch%02d.jpg' % (save_path, epoch, batch_size)
-        if phase == 'valid':
-            resultImgName = '%s/valResult_epoch%04d_batch%02d.hdr' % (save_path, epoch, batch_size)
-            diffImgName = '%s/val_diff_epoch%04d_batch%02d.jpg' % (save_path, epoch, batch_size)
+        diffImg = np.hstack((cover_diff, secret_diff))
         if phase == 'test':
-            resultImgName = '%s/testResult.hdr' % save_path
-            diffImgName = '%s/test_diff.jpg' % save_path
+            cv2.imwrite('%s/cover_%02d.hdr' % (save_path, epoch), cover)
+            cv2.imwrite('%s/stego_%02d.hdr' % (save_path, epoch), stego)
+            cv2.imwrite('%s/secret_%02d.hdr' % (save_path, epoch), secret)
+            cv2.imwrite('%s/secret_rev_%02d.hdr' % (save_path, epoch), secret_rev)
+            cv2.imwrite('%s/test_diff_%02d.hdr' % (save_path, epoch), diffImg)
+        else:
+            if phase == 'train':
+                resultImgName = '%s/trainResult_epoch%04d_batch%02d.hdr' % (save_path, epoch, batch_size)
+            if phase == 'valid':
+                resultImgName = '%s/valResult_epoch%04d_batch%02d.hdr' % (save_path, epoch, batch_size)
 
-        # result hdr
-        cv2.imwrite(resultImgName, resultImg)
-        # result ldr
-        cv2.imwrite(resultImgName + '.jpg', resultImg_ldr)
-        # diff ldr
-        cv2.imwrite(diffImgName, diffImg_ldr)
+
+            # result hdr
+            cv2.imwrite(resultImgName, resultImg)
+            # result ldr
+            cv2.imwrite(resultImgName + '.jpg', resultImg_ldr)
 
 
 def train(data_loader, epoch, Hnet, Rnet, criterion):
@@ -184,12 +200,12 @@ def train(data_loader, epoch, Hnet, Rnet, criterion):
     # early_stopping = EarlyStopping(patience=patience, verbose=True)
 
     for phase in ['train', 'valid']:
-        if phase == 'train':
-            Hnet.train()  # 训练
-            Rnet.train()
-        else:
-            Hnet.eval()  # 验证
-            Rnet.eval()
+        # if phase == 'train':
+        #     Hnet.train()  # 训练
+        #     Rnet.train()
+        # else:
+        #     Hnet.eval()  # 验证
+        #     Rnet.eval()
 
         # batch_size循环
         for i, (concat_img, cover_img, secret_img) in enumerate(data_loader[phase]):
@@ -199,20 +215,30 @@ def train(data_loader, epoch, Hnet, Rnet, criterion):
                 secret_img = secret_img.cuda()
                 concat_img = concat_img.cuda()
 
-            concat_imgv = Variable(concat_img.clone())
-            cover_imgv = Variable(cover_img.clone())
-            secret_imgv = Variable(secret_img.clone())
+            concat_imgv = Variable(concat_img.clone(), requires_grad=False)
+            cover_imgv = Variable(cover_img.clone(), requires_grad=False)
+            secret_imgv = Variable(secret_img.clone(), requires_grad=False)
 
-            stego = Hnet(concat_imgv)
+            if phase == 'train':
+                stego = Hnet(concat_imgv)
 
-            secret_rev = Rnet(stego)
+                secret_rev = Rnet(stego)
 
-            optimizerH.zero_grad()
-            optimizerR.zero_grad()
+                optimizerH.zero_grad()
+                optimizerR.zero_grad()
 
-            errH = criterion(stego, cover_imgv)  # loss between cover and container
-            errR = criterion(secret_rev, secret_imgv)  # loss between secret and revealed secret
-            err_sum = errH + opt.beta * errR
+                errH = criterion(stego, cover_imgv)  # loss between cover and container
+                errR = criterion(secret_rev, secret_imgv)  # loss between secret and revealed secret
+                err_sum = errH + opt.beta * errR
+            else:
+                with torch.no_grad():
+                    stego = Hnet(concat_imgv)
+
+                    secret_rev = Rnet(stego)
+
+                    errH = criterion(stego, cover_imgv)  # loss between cover and container
+                    errR = criterion(secret_rev, secret_imgv)  # loss between secret and revealed secret
+                    err_sum = errH + opt.beta * errR
 
             if phase == 'train':
                 train_Hlosses.update(errH.detach().item(), opt.batch_size)
@@ -224,14 +250,15 @@ def train(data_loader, epoch, Hnet, Rnet, criterion):
                 optimizerR.step()
 
             if phase == 'valid':
-                val_Hlosses.update(errH.detach().item(), opt.batch_size)
-                val_Rlosses.update(errR.detach().item(), opt.batch_size)
-                val_SumLosses.update(err_sum.detach().item(), opt.batch_size)
+                with torch.no_grad():
+                    val_Hlosses.update(errH.detach().item(), opt.batch_size)
+                    val_Rlosses.update(errR.detach().item(), opt.batch_size)
+                    val_SumLosses.update(err_sum.detach().item(), opt.batch_size)
 
             # if i > 2:
             #     break
 
-        # TODO: lr xiajiang
+        # TODO: lr 下降
         # if phase == 'valid':
         #     schedulerH.step(val_SumLosses.avg)
         #     schedulerR.step(val_SumLosses.avg)
@@ -270,22 +297,24 @@ def train(data_loader, epoch, Hnet, Rnet, criterion):
                 save_pic(phase, cover_img, stego, secret_img, secret_rev, opt.validation_pics, opt.batch_size, epoch)
 
         # save model params
-        if phase == 'train' and ((epoch % opt.checkpoint_freq) == 0 | (epoch == opt.epochs - 1)):
-            torch.save(
-                Hnet.state_dict(),
-                os.path.join(opt.checkpoint_path, 'H_epoch%04d_sumloss=%.6f.pth' % (epoch, train_SumLosses.avg))
-            )
-            torch.save(
-                Rnet.state_dict(),
-                os.path.join(opt.checkpoint_path, 'R_epoch%04d_sumloss=%.6f.pth' % (epoch, train_SumLosses.avg))
-            )
+        if phase == 'train':
+            if epoch % opt.checkpoint_freq == 0 | epoch == opt.epochs - 1:
+                torch.save(
+                    Hnet.state_dict(),
+                    os.path.join(opt.checkpoint_path, 'H_epoch%04d_sumloss=%.6f.pth' % (epoch, train_SumLosses.avg))
+                )
+                torch.save(
+                    Rnet.state_dict(),
+                    os.path.join(opt.checkpoint_path, 'R_epoch%04d_sumloss=%.6f.pth' % (epoch, train_SumLosses.avg))
+                )
 
 
-def test(test_loader, Hnet, Rnet, criterion):
-    print("---------- test begin ---------")
+def test(data_loader, Hnet, Rnet, criterion):
+    print_log("---------- test begin ---------", opt.test_log)
+    print_log(time.asctime(time.localtime(time.time())), opt.test_log, False)
     Hnet.eval()
     Rnet.eval()
-    for i, (concat_img, cover_img, secret_img) in enumerate(test_loader):
+    for i, (concat_img, cover_img, secret_img) in enumerate(data_loader):
         if opt.use_gpu:
             cover_img = cover_img.cuda()
             secret_img = secret_img.cuda()
@@ -302,11 +331,12 @@ def test(test_loader, Hnet, Rnet, criterion):
         errH = criterion(stego, cover_imgv)  # loss between cover and container
         errR = criterion(secret_rev, secret_imgv)  # loss between secret and revealed secret
         err_sum = errH + opt.beta * errR
+        
+        save_pic('test', cover_img, stego, secret_img, secret_rev, opt.test_pics, opt.batch_size, i)
 
-    save_pic('test', cover_img, stego, secret_img, secret_rev, opt.test_pics, opt.batch_size, 0)
-    log = 'test mode: loss is %.6f' % (err_sum.item()) + '\n'
-    print(log)
-    print("---------- test end ----------")
+    log = 'test: loss is %.6f' % (err_sum.item()) + '\n'
+    print_log(log, opt.test_log)
+    print_log("---------- test end ----------", opt.test_log)
 
 
 def main():
@@ -341,7 +371,7 @@ def main():
         except OSError:
             print("mkdir failed!")
 
-    logPath = opt.log_path + '/%s_%d_log.txt' % (opt.dataset, opt.batch_size)
+    logPath = opt.log_path + '/train_%d_log.txt' % opt.batch_size
 
     print_log(time.asctime(time.localtime(time.time())), logPath, False)
     print_log(str(opt), logPath, False)  # 把所有参数打印在日志中
@@ -363,22 +393,10 @@ def main():
 
         assert dataloaders
     else:  # 测试模式
-        # 先加载训练好的模型
-        # TODO: trained model path
-        opt.Hnet = ""
-        opt.Rnet = ''
-        # opt.Rnet = "./checkPoint/netR_epoch_73,sumloss=0.000447,Rloss=0.000252.pth"
-
         # 读取test数据
         test_dir = opt.test
-        test_dataset = DirectoryDataset(test_dir)
-        test_loader = DataLoader(
-            test_dataset,
-            batch_size=opt.batch_size,
-            num_workers=opt.num_workers,
-            shuffle=True,
-            drop_last=True,
-        )
+        test_dataset = DirectoryDataset(test_dir, preprocess=transforms)
+        test_loader = DataLoader(test_dataset, batch_size=opt.batch_size, num_workers=opt.num_workers, shuffle=True, drop_last=True)
         assert test_loader
 
     # 初始化模型 Hnet Rnet
@@ -403,31 +421,23 @@ def main():
 
     # 开始训练！
     if opt.test == '':
-        # setup optimizer
-        optimizerH = torch.optim.Adam(modelH.parameters(), lr=7e-5)
-        optimizerR = torch.optim.Adam(modelR.parameters(), lr=7e-5)
+        # setup optimizer  beta1=0.9, beta2=0.999
+        optimizerH = torch.optim.Adam(modelH.parameters(), lr=opt.lr, betas=(opt.beta1, opt.beta2))
+        optimizerR = torch.optim.Adam(modelR.parameters(), lr=opt.lr, betas=(0.5, 0.999))
 
         # 训练策略，学习率下降, 若训练集的loss值一直不变，就调小学习率
-        schedulerH = ReduceLROnPlateau(optimizerH, mode='min', factor=0.2, patience=5, verbose=True)
-        schedulerR = ReduceLROnPlateau(optimizerR, mode='min', factor=0.2, patience=8, verbose=True)
+        # schedulerH = ReduceLROnPlateau(optimizerH, mode='min', factor=0.2, patience=5, verbose=True)
+        # schedulerR = ReduceLROnPlateau(optimizerR, mode='min', factor=0.2, patience=8, verbose=True)
         print_log("training is beginning ......................................", logPath)
 
         for epoch in range(opt.epochs):
             # 只有训练的时候才会计算和更新梯度
             train(dataloaders, epoch, Hnet=modelH, Rnet=modelR, criterion=criterion)
+            # print_log("train is completed, the result is saved in the ./training", logPath)
 
     # 开始测试！
     else:
-        # 加载保存的模型
-        H_path = ''
-        R_path = ''
-        modelH = HNet()
-        modelR = RNet()
-        modelH.load_state_dict(torch.load(H_path))
-        modelR.load_state_dict(torch.load(R_path))
-        test(test_loader, 0, Hnet=modelH, Rnet=modelR, criterion=criterion)
-        print("test is completed, the result pic is saved in the ./training/testPics/")
-
+        test(test_loader, Hnet=modelH, Rnet=modelR, criterion=criterion)
 
 if __name__ == '__main__':
     main()

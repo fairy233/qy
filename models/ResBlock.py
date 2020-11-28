@@ -1,5 +1,5 @@
 import torch.nn as nn
-
+from torch.utils.checkpoint import checkpoint_sequential
 
 class ResidualBlock(nn.Module):
     def __init__(self, inchannel, outchannel, stride=1):
@@ -23,6 +23,8 @@ class ResidualBlock(nn.Module):
 
     def forward(self, x):
         out = self.left(x)
+        # out = checkpoint_sequential(self.left,2,x)
         out += self.shortcut(x)
+        # out += checkpoint_sequential(self.shortcut,2,x)
         out = self.relu(out)
         return out

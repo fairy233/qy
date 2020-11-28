@@ -1,5 +1,6 @@
 # encoding: utf-8
 import torch.nn as nn
+from torch.utils.checkpoint import checkpoint_sequential
 
 
 # nhf  特征数量
@@ -35,4 +36,5 @@ class RNet(nn.Module):
 
     def forward(self, x):
         output = self.main(x)
+        # output = checkpoint_sequential(self.main,2,x)
         return output
