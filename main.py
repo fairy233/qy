@@ -24,10 +24,10 @@ import numpy as np
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--batch_size', type=int, default=16, help='Batch size.'
+        '--batch_size', type=int, default=8, help='Batch size.'
     )
     parser.add_argument(
-        '--image_size', type=int, default=320, help='image size'
+        '--image_size', type=int, default=256, help='image size'
     )
     parser.add_argument(
         '--num_workers', type=int, default=0, help='Number of data loading workers.',
@@ -101,13 +101,13 @@ def parse_args():
 # TODO: 对输入图像的预处理的函数
 def transforms(hdr):
     # hdr = cv2.resize(hdr, (320, 320))
-    h = int(hdr.shape[0] / 2) - int(opt.image_size / 2)
-    w = int(hdr.shape[1] / 2) - int(opt.image_size / 2)
-    hdr = hdr[h: h+opt.image_size, w: w+opt.image_size]
+    # h = int(hdr.shape[0] / 2) - int(opt.image_size / 2)
+    # w = int(hdr.shape[1] / 2) - int(opt.image_size / 2)
+    # hdr = hdr[h: h+opt.image_size, w: w+opt.image_size]
     # maxvalue1 = np.max(hdr)
     # hdr = hdr / maxvalue1  # 归一化，将像素值映射到[0,1]
     hdr = map_range(hdr, 0, 1)    # black
-    hdr = cv2torch(hdr)  # (3,320,320) tensor
+    hdr = cv2torch(hdr)  # (3,256,256) tensor
     return hdr
 
 
@@ -200,12 +200,12 @@ def train(data_loader, epoch, Hnet, Rnet, criterion):
     # early_stopping = EarlyStopping(patience=patience, verbose=True)
 
     for phase in ['train', 'valid']:
-        # if phase == 'train':
-        #     Hnet.train()  # 训练
-        #     Rnet.train()
-        # else:
-        #     Hnet.eval()  # 验证
-        #     Rnet.eval()
+        if phase == 'train':
+            Hnet.train()  # 训练
+            Rnet.train()
+        else:
+            Hnet.eval()  # 验证
+            Rnet.eval()
 
         # batch_size循环
         for i, (concat_img, cover_img, secret_img) in enumerate(data_loader[phase]):
@@ -417,6 +417,7 @@ def main():
         print_network(modelR)
 
     # MSE loss
+    # TODO: loss function change
     criterion = nn.MSELoss().cuda()
 
     # 开始训练！

@@ -328,66 +328,41 @@ def slice_gauss(
 class DirectoryDataset(Dataset):
     def __init__(
         self,
-        cover_path='images/train',
-        secret_path='secret_img',
+        image_path='images/train',
         data_extensions=['.hdr', '.exr', '.jpeg'],
         # data_extensions=['.hdr', '.exr'],
         preprocess=None,
     ):
         super(DirectoryDataset, self).__init__()
         
-        cover_path = process_path(cover_path)
-        self.cover_list = []
-        for root, _, fnames in sorted(os.walk(cover_path)):
+        image_path = process_path(image_path)
+        self.image_list = []
+        for root, _, fnames in sorted(os.walk(image_path)):
             for fname in fnames:
                 if any(
                     fname.lower().endswith(extension)
                     for extension in data_extensions
                 ):
-                    self.cover_list.append(os.path.join(root, fname))
-        #pdb.set_trace()
-        if len(self.cover_list) == 0:
+                    self.image_list.append(os.path.join(root, fname))
+        if len(self.image_list) == 0:
             msg = 'Could not find any files with extensions:\n[{0}]\nin\n{1}'
             raise RuntimeError(
-                msg.format(', '.join(data_extensions), cover_path)
+                msg.format(', '.join(data_extensions), image_path)
             )
-            
-        #pdb.set_trace()
-        secret_path = process_path(secret_path)
-        self.secret_list = []
-        for root, _, fnames in sorted(os.walk(secret_path)):
-            for fname in fnames:
-                if any(
-                    fname.lower().endswith(extension)
-                    for extension in data_extensions
-                ):
-                    self.secret_list.append(os.path.join(root, fname))
-        #pdb.set_trace()
-        if len(self.secret_list) == 0:
-            msg = 'Could not find any files with extensions:\n[{0}]\nin\n{1}'
-            raise RuntimeError(
-                msg.format(', '.join(data_extensions), cover_path)
-            )
-            
-        #pdb.set_trace()
+
+        self.cover_list = self.image_list[0: int(len(self.image_list)/2)]
+        self.secret_list = self.image_list[int(len(self.image_list) / 2): len(self.image_list)]
+
         self.preprocess = preprocess
 
     def __getitem__(self, index):
-        #pdb.set_trace()
         cover = cv2.imread(
             self.cover_list[index], flags=cv2.IMREAD_ANYDEPTH + cv2.IMREAD_COLOR
         )
-        # cover = cv2.resize(cover, (320, 320))
-        # cover = cover/255
-        # cover = cv2torch(cover)
 
         secret = cv2.imread(
-            self.secret_list[0], flags=cv2.IMREAD_ANYDEPTH + cv2.IMREAD_COLOR
-            # TODO: 秘密图像可以自己选择是哪一张
+            self.secret_list[index], flags=cv2.IMREAD_ANYDEPTH + cv2.IMREAD_COLOR
         )
-        # secret = cv2.resize(secret, (320, 320))
-        # secret = secret/255
-        # secret = cv2torch(secret)
 
         if self.preprocess is not None:
             cover = self.preprocess(cover)
