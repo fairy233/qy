@@ -1,22 +1,26 @@
-#different loss funciton
+# different loss funciton
+import torch
 from torch import nn
-def gradient_loss_(gen_frames, gt_frames):
-    kernel_x = [[0, 0, 0],
-                [-1., 1., 0], 
-                [0, 0, 0]]
-                
-    kernel_y = [[0, 0, 0],
-                [0, 1., 0],
-                [0, -1., 0]]
-                    
+import torch.nn.functional as F
+
+
+def gradient_loss(gen_frames, gt_frames):
+    # kernel_x = [[0, 0, 0],
+    #             [-1., 1., 0],
+    #             [0, 0, 0]]
+    #
+    # kernel_y = [[0, 0, 0],
+    #             [0, 1., 0],
+    #             [0, -1., 0]]
+
     # different kernels
-    # kernel_x = [[-1., -2., -1.],
-                # [0, 0, 0], 
-                # [1., 2., 1.]]
-                
-    # kernel_y = [[-1., 0, 1.],
-                # [-2., 0, 2.],
-                # [-1., 0, 1.]]
+    kernel_x = [[-1., -2., -1.],
+                [0, 0, 0],
+                [1., 2., 1.]]
+
+    kernel_y = [[-1., 0, 1.],
+                [-2., 0, 2.],
+                [-1., 0, 1.]]
     min_batch = gen_frames.size()[0]
     channels = gen_frames.size()[1]
     out_channel = channels
@@ -33,12 +37,25 @@ def gradient_loss_(gen_frames, gt_frames):
     grad_diff_y = torch.abs(gt_dy - gen_dy)
     # condense into one tensor and avg
     return torch.mean(grad_diff_x + grad_diff_y)
-    
-    
-# def pu_ssim_loss (gen_frames, gt_frames):
-    # return 0
-    
 
-# loss1 = nn.MSELoss().cuda()
+
+def mse_loss(gen_frames, gt_frames):
+    loss = nn.MSELoss()
+    return torch.mean(loss(gen_frames, gt_frames))
+
+
+def loss(gen_frames, gt_frames):
+    return mse_loss(gen_frames, gt_frames)
+
+
+def loss1(gen_frames, gt_frames):
+    gradient = gradient_loss(gen_frames, gt_frames)
+    mse = mse_loss(gen_frames, gt_frames)
+    return gradient + mse
+
 # loss2 = nn.MSELoss().cuda() + gradient_loss_()
 # loss3 = nn.MSELoss().cuda() + pu_ssim_loss_()
+
+
+# def pu_ssim_loss (gen_frames, gt_frames):
+# return 0

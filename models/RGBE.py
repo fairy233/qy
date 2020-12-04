@@ -131,9 +131,9 @@ def saveHdr(filename:str,rgbe:np.ndarray)->bool:
         fw.write(b'\n')
 
         fw.write(b'-Y ')
-        fw.write(bytes(str(rgbe.shape[0]),'ansi'))
+        fw.write(bytes(str(rgbe.shape[0]), 'ascii'))
         fw.write(b' +X ')
-        fw.write(bytes(str(rgbe.shape[1]),'ansi'))
+        fw.write(bytes(str(rgbe.shape[1]), 'ascii'))
         fw.write(b'\n')
 
         for j in range(rgbe.shape[0]):

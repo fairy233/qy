@@ -328,15 +328,15 @@ def slice_gauss(
 class DirectoryDataset(Dataset):
     def __init__(
         self,
-        image_path='images/train',
+        image_path='hdr/train',
         data_extensions=['.hdr', '.exr', '.jpeg'],
-        # data_extensions=['.hdr', '.exr'],
         preprocess=None,
     ):
         super(DirectoryDataset, self).__init__()
         
         image_path = process_path(image_path)
         self.image_list = []
+
         for root, _, fnames in sorted(os.walk(image_path)):
             for fname in fnames:
                 if any(
@@ -344,33 +344,69 @@ class DirectoryDataset(Dataset):
                     for extension in data_extensions
                 ):
                     self.image_list.append(os.path.join(root, fname))
-        if len(self.image_list) == 0:
+        if len(image_path) == 0:
             msg = 'Could not find any files with extensions:\n[{0}]\nin\n{1}'
             raise RuntimeError(
                 msg.format(', '.join(data_extensions), image_path)
             )
 
-        self.cover_list = self.image_list[0: int(len(self.image_list)/2)]
-        self.secret_list = self.image_list[int(len(self.image_list) / 2): len(self.image_list)]
+        # cover_path = process_path(cover_path)
+        # self.cover_list = []
+        # for root, _, fnames in sorted(os.walk(cover_path)):
+        #     for fname in fnames:
+        #         if any(
+        #             fname.lower().endswith(extension)
+        #             for extension in data_extensions
+        #         ):
+        #             cover_list.append(os.path.join(root, fname))
+        # if len(cover_path) == 0:
+        #     msg = 'Could not find any files with extensions:\n[{0}]\nin\n{1}'
+        #     raise RuntimeError(
+        #         msg.format(', '.join(data_extensions), cover_path)
+        #     )
+        #
+        #
+        # secret_path = process_path(secret_path)
+        # self.secret_list = []
+        # for root, _, fnames in sorted(os.walk(secret_path)):
+        #     for fname in fnames:
+        #         if any(
+        #                 fname.lower().endswith(extension)
+        #                 for extension in data_extensions
+        #         ):
+        #             self.secret_list.append(os.path.join(root, fname))
+        # # pdb.set_trace()
+        # if len(self.secret_list) == 0:
+        #     msg = 'Could not find any files with extensions:\n[{0}]\nin\n{1}'
+        #     raise RuntimeError(
+        #         msg.format(', '.join(data_extensions), cover_path)
+        #     )
+
+        # self.cover_list = image_list[0: int(len(image_list)/2)]
+        # self.secret_list = image_list[int(len(image_list) / 2): len(image_list)]
 
         self.preprocess = preprocess
 
     def __getitem__(self, index):
-        cover = cv2.imread(
-            self.cover_list[index], flags=cv2.IMREAD_ANYDEPTH + cv2.IMREAD_COLOR
-        )
-
-        secret = cv2.imread(
-            self.secret_list[index], flags=cv2.IMREAD_ANYDEPTH + cv2.IMREAD_COLOR
-        )
+        img = cv2.imread(self.image_list[index], flags=cv2.IMREAD_ANYDEPTH + cv2.IMREAD_COLOR)
+        # cover = cv2.imread(
+        #     self.cover_list[index], flags=cv2.IMREAD_ANYDEPTH + cv2.IMREAD_COLOR
+        # )
+        #
+        # secret = cv2.imread(
+        #     self.secret_list[index], flags=cv2.IMREAD_ANYDEPTH + cv2.IMREAD_COLOR
+        # )
 
         if self.preprocess is not None:
-            cover = self.preprocess(cover)
-            secret = self.preprocess(secret)
+              img = self.preprocess(img)
+        #     cover = self.preprocess(cover)
+        #     secret = self.preprocess(secret)
+        #
+        # img_6ch = torch.cat([cover, secret], dim=0)
 
-        img_6ch = torch.cat([cover, secret], dim=0)
-
-        return (img_6ch, cover, secret)
+        # return (img_6ch, cover, secret)
+        return img
 
     def __len__(self):
-        return len(self.cover_list)
+        # return len(self.cover_list)
+        return len(self.image_list)

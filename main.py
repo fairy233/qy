@@ -15,6 +15,7 @@ from models.util import (
     hdr2ldr
 )
 from models.earlyStop import EarlyStopping
+from loss import loss1
 from models.Hnet_unet_res import HNet
 from models.RNet import RNet
 from models.AverageMeter import AverageMeter
@@ -24,7 +25,7 @@ import numpy as np
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--batch_size', type=int, default=8, help='Batch size.'
+        '--batch_size', type=int, default=16, help='Batch size.'
     )
     parser.add_argument(
         '--image_size', type=int, default=256, help='image size'
@@ -33,7 +34,7 @@ def parse_args():
         '--num_workers', type=int, default=0, help='Number of data loading workers.',
     )
     parser.add_argument(
-        '--images_path', type=str, default='./images/', help='Path to coverImage data.'
+        '--images_path', type=str, default='./hdr/', help='Path to coverImage data.'
     )
     parser.add_argument(
         '--use_gpu', type=bool, default=True, help='Use GPU for training.'
@@ -50,7 +51,7 @@ def parse_args():
     parser.add_argument(
         '--beta2', type=float, default=0.999, help='beta2 for adam. default=0.999')
     parser.add_argument(
-        # 路径可为'./test_pics'
+        # 路径可为'./hdr/test'
         '--test', default='', help='test mode, you need give the test pics dirs in this param'
     )
     parser.add_argument(
@@ -186,7 +187,7 @@ def save_pic(phase, cover, stego, secret, secret_rev, save_path, batch_size, epo
             cv2.imwrite(resultImgName + '.jpg', resultImg_ldr)
 
 
-def train(data_loader, epoch, Hnet, Rnet, criterion):
+def train(data_loader, epoch, Hnet, Rnet):
     start_time = time.time()
     train_Hlosses = AverageMeter()
     train_Rlosses = AverageMeter()
@@ -208,7 +209,17 @@ def train(data_loader, epoch, Hnet, Rnet, criterion):
             Rnet.eval()
 
         # batch_size循环
-        for i, (concat_img, cover_img, secret_img) in enumerate(data_loader[phase]):
+        for i, data in enumerate(data_loader[phase]):
+
+            all_pics = data  # allpics contains cover images and secret images
+            this_batch_size = int(all_pics.size()[0] / 2)  # get true batch size of this step
+
+            # first half of images will become cover images, the rest are treated as secret images
+            cover_img = all_pics[0:this_batch_size, :, :, :]  # batchsize,3,256,256
+            secret_img = all_pics[this_batch_size:this_batch_size * 2, :, :, :]
+
+            # concat cover images and secret images as input of H-net
+            concat_img = torch.cat([cover_img, secret_img], dim=1)
 
             if opt.use_gpu:
                 cover_img = cover_img.cuda()
@@ -227,8 +238,8 @@ def train(data_loader, epoch, Hnet, Rnet, criterion):
                 optimizerH.zero_grad()
                 optimizerR.zero_grad()
 
-                errH = criterion(stego, cover_imgv)  # loss between cover and container
-                errR = criterion(secret_rev, secret_imgv)  # loss between secret and revealed secret
+                errH = loss1(stego, cover_imgv)  # loss between cover and container
+                errR = loss1(secret_rev, secret_imgv)  # loss between secret and revealed secret
                 err_sum = errH + opt.beta * errR
             else:
                 with torch.no_grad():
@@ -236,8 +247,8 @@ def train(data_loader, epoch, Hnet, Rnet, criterion):
 
                     secret_rev = Rnet(stego)
 
-                    errH = criterion(stego, cover_imgv)  # loss between cover and container
-                    errR = criterion(secret_rev, secret_imgv)  # loss between secret and revealed secret
+                    errH = loss1(stego, cover_imgv)  # loss between cover and container
+                    errR = loss1(secret_rev, secret_imgv)  # loss between secret and revealed secret
                     err_sum = errH + opt.beta * errR
 
             if phase == 'train':
@@ -301,36 +312,46 @@ def train(data_loader, epoch, Hnet, Rnet, criterion):
             if epoch % opt.checkpoint_freq == 0 or epoch == opt.epochs - 1:
                 torch.save(
                     Hnet.state_dict(),
-                    os.path.join(opt.checkpoint_path, 'H_epoch%04d_sumloss=%.6f.pth' % (epoch, train_SumLosses.avg))
+                    os.path.join(opt.checkpoint_path, 'H_epoch%04d_sumloss%.6f_lr%.6f.pth' % (epoch, train_SumLosses.avg, opt.lr))
                 )
                 torch.save(
                     Rnet.state_dict(),
-                    os.path.join(opt.checkpoint_path, 'R_epoch%04d_sumloss=%.6f.pth' % (epoch, train_SumLosses.avg))
+                    os.path.join(opt.checkpoint_path, 'R_epoch%04d_sumloss%.6f_lr%.6f.pth' % (epoch, train_SumLosses.avg, opt.lr))
                 )
 
 
-def test(data_loader, Hnet, Rnet, criterion):
+def test(data_loader, Hnet, Rnet):
     print_log("---------- test begin ---------", opt.test_log)
     print_log(time.asctime(time.localtime(time.time())), opt.test_log, False)
     Hnet.eval()
     Rnet.eval()
-    for i, (concat_img, cover_img, secret_img) in enumerate(data_loader):
+    for i, data in enumerate(data_loader):
+        all_pics = data  # allpics contains cover images and secret images
+        this_batch_size = int(all_pics.size()[0] / 2)  # get true batch size of this step
+
+        # first half of images will become cover images, the rest are treated as secret images
+        cover_img = all_pics[0:this_batch_size, :, :, :]  # batchsize,3,256,256
+        secret_img = all_pics[this_batch_size:this_batch_size * 2, :, :, :]
+
+        # concat cover images and secret images as input of H-net
+        concat_img = torch.cat([cover_img, secret_img], dim=1)
+
         if opt.use_gpu:
             cover_img = cover_img.cuda()
             secret_img = secret_img.cuda()
             concat_img = concat_img.cuda()
 
-        concat_imgv = Variable(concat_img)
-        cover_imgv = Variable(cover_img)
-        secret_imgv = Variable(secret_img)
+        concat_imgv = Variable(concat_img, requires_grad=False)
+        cover_imgv = Variable(cover_img, requires_grad=False)
+        secret_imgv = Variable(secret_img, requires_grad=False)
 
-        stego = Hnet(concat_imgv)
+        with torch.no_grad():
+            stego = Hnet(concat_imgv)
+            secret_rev = Rnet(stego)
 
-        secret_rev = Rnet(stego)
-
-        errH = criterion(stego, cover_imgv)  # loss between cover and container
-        errR = criterion(secret_rev, secret_imgv)  # loss between secret and revealed secret
-        err_sum = errH + opt.beta * errR
+            errH = loss1(stego, cover_imgv)  # loss between cover and container
+            errR = loss1(secret_rev, secret_imgv)  # loss between secret and revealed secret
+            err_sum = errH + opt.beta * errR
         
         save_pic('test', cover_img, stego, secret_img, secret_rev, opt.test_pics, opt.batch_size, i)
 
@@ -381,7 +402,7 @@ def main():
     if opt.test == '':
         data_dir = opt.images_path
         image_datasets = {
-            x: DirectoryDataset(os.path.join(data_dir, x), preprocess=transforms) for x in ['train', 'valid']
+            x: DirectoryDataset(os.path.join(data_dir, x),preprocess=transforms) for x in ['train', 'valid']
         }
 
         dataloaders = {x: DataLoader(
@@ -418,7 +439,7 @@ def main():
 
     # MSE loss
     # TODO: loss function change
-    criterion = nn.MSELoss().cuda()
+    # criterion = nn.MSELoss() + GradientLoss()
 
     # 开始训练！
     if opt.test == '':
@@ -433,13 +454,26 @@ def main():
 
         for epoch in range(opt.epochs):
             # 只有训练的时候才会计算和更新梯度
-            train(dataloaders, epoch, Hnet=modelH, Rnet=modelR, criterion=criterion)
+            train(dataloaders, epoch, Hnet=modelH, Rnet=modelR)
             # print_log("train is completed, the result is saved in the ./training", logPath)
 
     # 开始测试！
     else:
-        test(test_loader, Hnet=modelH, Rnet=modelR, criterion=criterion)
+        test(test_loader, Hnet=modelH, Rnet=modelR)
 
+
+from models.RGBE import readHdr,rgbe2float
 if __name__ == '__main__':
     main()
+
+    # path = './hdr/cropHdr'
+    # dir = os.listdir(path)
+    # for i,filename in enumerate(dir):
+    #     img = cv2.imread(path+'/'+filename, flags=cv2.IMREAD_ANYDEPTH + cv2.IMREAD_COLOR)
+    #     # img =rgbe2float(readHdr(path+'/'+filename))
+    #     # if img == None:
+    #     if img.shape[0]==0 or img.shape[1]==0:
+    #         print(filename)
+    #     else:
+    #         print("success"+str(i))
 
