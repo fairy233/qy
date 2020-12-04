@@ -10,7 +10,7 @@ from torch.autograd import Variable
 from models.util import (
     DirectoryDataset,
     cv2torch,
-    map_range,
+    random_noise,
     torch2cv,
     hdr2ldr
 )
@@ -99,16 +99,16 @@ def parse_args():
     return parser.parse_args()
 
 
-# TODO: 对输入图像的预处理的函数
+# 对输入图像的预处理的函数--图像增强（图像翻转flip, 高斯噪声）
+# 图像裁剪和归一化放到数据集定义里面了
 def transforms(hdr):
-    # hdr = cv2.resize(hdr, (320, 320))
-    # h = int(hdr.shape[0] / 2) - int(opt.image_size / 2)
-    # w = int(hdr.shape[1] / 2) - int(opt.image_size / 2)
-    # hdr = hdr[h: h+opt.image_size, w: w+opt.image_size]
-    # maxvalue1 = np.max(hdr)
-    # hdr = hdr / maxvalue1  # 归一化，将像素值映射到[0,1]
-    hdr = map_range(hdr, 0, 1)    # black
-    hdr = cv2torch(hdr)  # (3,256,256) tensor
+    # hdr 是一个numpy (256,256,3)
+    if np.random.rand() < 0.5:
+        hdr = cv2.flip(hdr, 1)  # 1 水平翻转 0 垂直翻转 -1 水平垂直翻转
+    if np.random.rand() < 0.5:
+        hdr = random_noise(hdr)
+
+    hdr = cv2torch(hdr)  # 转为(3,256,256) tensor
     return hdr
 
 
