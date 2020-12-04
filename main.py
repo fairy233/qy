@@ -400,6 +400,7 @@ def main():
     # 准备数据集，分别准备train/val/test
     # 通过判断test是否有值，区分是train/val 还是test模式
     if opt.test == '':
+        print_log('prepare train and val dataset', logPath)
         data_dir = opt.images_path
         image_datasets = {
             x: DirectoryDataset(os.path.join(data_dir, x),preprocess=transforms) for x in ['train', 'valid']
@@ -415,6 +416,7 @@ def main():
         assert dataloaders
     else:  # 测试模式
         # 读取test数据
+        print_log('prepare test dataset', opt.test_log)
         test_dir = opt.test
         test_dataset = DirectoryDataset(test_dir, preprocess=transforms)
         test_loader = DataLoader(test_dataset, batch_size=opt.batch_size, num_workers=opt.num_workers, shuffle=True, drop_last=True)
