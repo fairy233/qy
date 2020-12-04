@@ -4,7 +4,9 @@ from numpy.random import uniform
 import torch
 from torch.utils.data import Dataset
 import cv2
-import pdb
+import math
+
+
 #返回绝对路径
 def process_path(directory, create=False):
     directory = os.path.expanduser(directory)
@@ -324,6 +326,42 @@ def slice_gauss(
     """Returns a cropped sample from an image array using :func:`index_gauss`"""
     return img[index_gauss(img, precision, crop_size, random_size, ratio)]
 
+def random_noise(img, im_noise=[0.0, 0.0001]):
+    # img = img.astype(np.float32)
+    noise = np.random.normal(im_noise[0], im_noise[1], img.shape).astype(np.float32)
+    img = img + noise
+    img[img < 1e-5] = 1e-5
+    img[img > 1] = 1  #
+    return img
+
+
+# 随机裁剪并随机翻转
+def random_crop(img, sub_im_sc=[6, 6], resize=False, rez_im_sc=[256, 256]):
+    sub_im_sc = np.array(sub_im_sc)
+    img_size = np.array(img.shape)  # get size [256,256,3]
+
+    if sum(img_size[:2] < 256) >= 1:  # img_size[:2] [256,256]
+        print('img size error(too small)!')
+        raise IndexError
+
+    # np.random.rand(2) 生成两个服从均匀分布的随机数（0-1） 最终是2-6 * 128  256-768
+    # crop_size 是随机裁剪的宽高。可能不是正方形
+    crop_size = (2 + (sub_im_sc - 2) * np.random.rand(2)).astype(np.int) * 128
+    # print('crop_size: ', crop_size)
+    # print('img_size: ', img_size)
+    crop_size[crop_size >= img_size[:2]] = 256
+    h, w = crop_size
+    # print(h,w)
+    h_start, w_start = (np.random.rand(2) * (img_size[:2] - [h, w])).astype(np.int)
+    # print(h_start,w_start)
+
+    img_crop = img[h_start:h_start + h, w_start:w_start + w, :]  # 这个剪裁之后的图片大小不一定是256*256， 是有个范围的
+
+    if resize == True:
+        img_crop = cv2.resize(img_crop, (rez_im_sc[0], rez_im_sc[1]))  # 把裁剪后的图resize到256，256范围
+
+    return img_crop
+
 
 class DirectoryDataset(Dataset):
     def __init__(
@@ -350,61 +388,23 @@ class DirectoryDataset(Dataset):
                 msg.format(', '.join(data_extensions), image_path)
             )
 
-        # cover_path = process_path(cover_path)
-        # self.cover_list = []
-        # for root, _, fnames in sorted(os.walk(cover_path)):
-        #     for fname in fnames:
-        #         if any(
-        #             fname.lower().endswith(extension)
-        #             for extension in data_extensions
-        #         ):
-        #             cover_list.append(os.path.join(root, fname))
-        # if len(cover_path) == 0:
-        #     msg = 'Could not find any files with extensions:\n[{0}]\nin\n{1}'
-        #     raise RuntimeError(
-        #         msg.format(', '.join(data_extensions), cover_path)
-        #     )
-        #
-        #
-        # secret_path = process_path(secret_path)
-        # self.secret_list = []
-        # for root, _, fnames in sorted(os.walk(secret_path)):
-        #     for fname in fnames:
-        #         if any(
-        #                 fname.lower().endswith(extension)
-        #                 for extension in data_extensions
-        #         ):
-        #             self.secret_list.append(os.path.join(root, fname))
-        # # pdb.set_trace()
-        # if len(self.secret_list) == 0:
-        #     msg = 'Could not find any files with extensions:\n[{0}]\nin\n{1}'
-        #     raise RuntimeError(
-        #         msg.format(', '.join(data_extensions), cover_path)
-        #     )
-
-        # self.cover_list = image_list[0: int(len(image_list)/2)]
-        # self.secret_list = image_list[int(len(image_list) / 2): len(image_list)]
-
         self.preprocess = preprocess
 
     def __getitem__(self, index):
         img = cv2.imread(self.image_list[index], flags=cv2.IMREAD_ANYDEPTH + cv2.IMREAD_COLOR)
-        # cover = cv2.imread(
-        #     self.cover_list[index], flags=cv2.IMREAD_ANYDEPTH + cv2.IMREAD_COLOR
-        # )
-        #
-        # secret = cv2.imread(
-        #     self.secret_list[index], flags=cv2.IMREAD_ANYDEPTH + cv2.IMREAD_COLOR
-        # )
+        img_size = np.array(img.shape)
+        if sum(img_size < 256) >= 2:
+            raise Exception('img size is too small!')
+        # 裁剪
+        # h, w = img_size[:2]
+        # num = math.ceil(h * w / (256 * 256))  # 每张图裁剪的个数
+        img = random_crop(img, resize=True)
+        # 归一化
+        maxvalue = np.max(img)
+        img = img / maxvalue
 
         if self.preprocess is not None:
-              img = self.preprocess(img)
-        #     cover = self.preprocess(cover)
-        #     secret = self.preprocess(secret)
-        #
-        # img_6ch = torch.cat([cover, secret], dim=0)
-
-        # return (img_6ch, cover, secret)
+            img = self.preprocess(img)
         return img
 
     def __len__(self):
