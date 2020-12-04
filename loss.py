@@ -40,18 +40,73 @@ def gradient_loss(gen_frames, gt_frames):
 
 
 def mse_loss(gen_frames, gt_frames):
-    loss = nn.MSELoss()
+    loss = nn.MSELoss().cuda()
     return torch.mean(loss(gen_frames, gt_frames))
 
+def log_mse_loss(gen_frames, gt_frames, esp=1e-5):
+    log_mse = (torch.log(gen_frames + esp) - torch.log(gt_frames + esp)) ** 2
+    return torch.mean(log_mse)
 
+
+def color_loss(gen_frames, gt_frames):
+    loss_color = (get_hue_value(gen_frames) - get_hue_value(gt_frames)) ** 2
+    return torch.mean(loss_color)
+
+
+# 将hdr图像从RGB空间----> HSV空间，得到H通道的值
+def get_hue_value(img):
+    H = img
+
+    img_max, index_max = torch.max(img, 1)
+    img_min, index_min = torch.min(img, 1)
+
+    temp = torch.zeros(img_max.shape).cuda()
+    img_r = img[:, 0, :, :]
+    img_g = img[:, 1, :, :]
+    img_b = img[:, 2, :, :]
+    d = img_max - img_min
+    index_nz = d != 0
+    img_g_sel = img_g[index_nz]
+    img_b_sel = img_b[index_nz]
+    d_sel = d[index_nz]
+
+    temp[index_nz] = 60 * (img_g_sel - img_b_sel) / d_sel  #
+    img_hue = temp
+    # index = (index_max==0)*(img_g<img_b) #
+    # img_hue[index] = temp[index]+360
+    index2 = (index_max == 1) * index_nz
+    img_b_sel2 = img_b[index2]
+    img_r_sel2 = img_r[index2]
+    d_sel2 = d[index2]
+    img_hue[index2] = 60 * (img_b_sel2 - img_r_sel2) / d_sel2 + 120
+
+    index3 = (index_max == 2) * index_nz
+    img_r_sel3 = img_r[index3]
+    img_g_sel3 = img_g[index3]
+    d_sel3 = d[index3]
+
+    img_hue[index3] = 60 * (img_r_sel3 - img_g_sel3) / d_sel3 + 240
+    zeros = torch.zeros_like(img_hue).cuda()
+    zeros[img_hue < 0] = 360
+    img_hue = img_hue + zeros
+    # print(img_hue.shape)
+    return img_hue / 360
+
+# single MSE loss
 def loss(gen_frames, gt_frames):
     return mse_loss(gen_frames, gt_frames)
 
-
+# MSE + gradient
 def loss1(gen_frames, gt_frames):
     gradient = gradient_loss(gen_frames, gt_frames)
     mse = mse_loss(gen_frames, gt_frames)
     return gradient + mse
+
+#  log_mse + color
+def loss2(gen_frames, gt_frames, alpha=0.01):
+    log_mse = log_mse_loss(gen_frames, gt_frames)
+    loss_color = color_loss(gen_frames, gt_frames)
+    return log_mse + alpha * loss_color
 
 # loss2 = nn.MSELoss().cuda() + gradient_loss_()
 # loss3 = nn.MSELoss().cuda() + pu_ssim_loss_()
