@@ -15,8 +15,8 @@ from models.util import (
     hdr2ldr
 )
 from models.earlyStop import EarlyStopping
-from loss import loss1
-from models.Hnet_unet_res import HNet
+from loss import (loss2, color_loss, log_mse_loss)
+from models.Hnet_unet_rest2 import HNet
 from models.RNet import RNet
 from models.AverageMeter import AverageMeter
 import numpy as np
@@ -43,7 +43,7 @@ def parse_args():
         '--debug', type=bool, default=False, help='debug mode do not create folders'
     )
     parser.add_argument(
-        '--lr', type=float, default=0.001, help='learning rate, default=0.001'
+        '--lr', type=float, default=0.0001, help='learning rate, default=0.001'
     )
     parser.add_argument(
         '--beta1', type=float, default=0.9, help='beta1 for adam. default=0.5'
@@ -58,19 +58,19 @@ def parse_args():
         '--beta', type=float, default=0.75, help='hyper parameter of loss_sum'
     )
     parser.add_argument(
-        '--epochs', type=int, default=200, help='the num of training times'
+        '--epochs', type=int, default=1000, help='the num of training times'
     )
     parser.add_argument(
-        '--checkpoint_freq', type=int, default=50, help='Checkpoint model every x epochs.',
+        '--checkpoint_freq', type=int, default=100, help='Checkpoint model every x epochs.',
     )
     parser.add_argument(
-        '--loss_freq', type=int, default=5, help='Report (average) loss every x epochs.',
+        '--loss_freq', type=int, default=20, help='Report (average) loss every x epochs.',
     )
     parser.add_argument(
-        '--result_freq', type=int, default=10, help='save the resultPictures every x epochs'
+        '--result_freq', type=int, default=50, help='save the resultPictures every x epochs'
     )
     parser.add_argument(
-        '--checkpoint_path', default='./training', help='Path for checkpointing.',
+        '--checkpoint_path', default='./training1204', help='Path for checkpointing.',
     )
     parser.add_argument(
         '--log_path', default='./training', help='log path'
@@ -110,7 +110,6 @@ def transforms(hdr):
 
     hdr = cv2torch(hdr)  # 转为(3,256,256) tensor
     return hdr
-
 
 def print_log(log_info, log_path, console=True):
     log_info += '\n'
@@ -238,8 +237,8 @@ def train(data_loader, epoch, Hnet, Rnet):
                 optimizerH.zero_grad()
                 optimizerR.zero_grad()
 
-                errH = loss1(stego, cover_imgv)  # loss between cover and container
-                errR = loss1(secret_rev, secret_imgv)  # loss between secret and revealed secret
+                errH = loss2(stego, cover_imgv)  # loss between cover and container
+                errR = loss2(secret_rev, secret_imgv)  # loss between secret and revealed secret
                 err_sum = errH + opt.beta * errR
             else:
                 with torch.no_grad():
@@ -247,8 +246,8 @@ def train(data_loader, epoch, Hnet, Rnet):
 
                     secret_rev = Rnet(stego)
 
-                    errH = loss1(stego, cover_imgv)  # loss between cover and container
-                    errR = loss1(secret_rev, secret_imgv)  # loss between secret and revealed secret
+                    errH = loss2(stego, cover_imgv)  # loss between cover and container
+                    errR = loss2(secret_rev, secret_imgv)  # loss between secret and revealed secret
                     err_sum = errH + opt.beta * errR
 
             if phase == 'train':
@@ -268,7 +267,9 @@ def train(data_loader, epoch, Hnet, Rnet):
 
             # if i > 2:
             #     break
-
+        if epoch % 100 == 0 and epoch != 0:
+            schedulerH.step()
+            schedulerR.step()
         # TODO: lr 下降
         # if phase == 'valid':
         #     schedulerH.step(val_SumLosses.avg)
@@ -289,10 +290,11 @@ def train(data_loader, epoch, Hnet, Rnet):
                 epoch_log = 'train:' + '\n'
             else:
                 epoch_log = 'valid:' + '\n'
-            epoch_log += "epoch %d/%d : " % (epoch, opt.epochs - 1)
+            epoch_log += "epoch %d/%d : " % (epoch, opt.epochs)
             epoch_log += "one epoch time is %.0fm %.0fs" % (epoch_time // 60, epoch_time % 60) + "\n"
             epoch_log += "learning rate: optimizerH_lr = %.8f\t optimizerR_lr = %.8f" % (
                 optimizerH.param_groups[0]['lr'], optimizerR.param_groups[0]['lr']) + "\n"
+            # schedulerH.get_lr()[0] schedulerR.get_lr()[0]
             if phase == 'train':
                 epoch_log += "Hloss=%.6f\t Rloss=%.6f\t sumLoss=%.6f" % (train_Hlosses.avg, train_Rlosses.avg, train_SumLosses.avg) + "\n"
             if phase == 'valid':
@@ -349,8 +351,8 @@ def test(data_loader, Hnet, Rnet):
             stego = Hnet(concat_imgv)
             secret_rev = Rnet(stego)
 
-            errH = loss1(stego, cover_imgv)  # loss between cover and container
-            errR = loss1(secret_rev, secret_imgv)  # loss between secret and revealed secret
+            errH = loss2(stego, cover_imgv)  # loss between cover and container
+            errR = loss2(secret_rev, secret_imgv)  # loss between secret and revealed secret
             err_sum = errH + opt.beta * errR
         
         save_pic('test', cover_img, stego, secret_img, secret_rev, opt.test_pics, opt.batch_size, i)
@@ -403,7 +405,7 @@ def main():
         print_log('prepare train and val dataset', logPath)
         data_dir = opt.images_path
         image_datasets = {
-            x: DirectoryDataset(os.path.join(data_dir, x),preprocess=transforms) for x in ['train', 'valid']
+            x: DirectoryDataset(os.path.join(data_dir, x), preprocess=transforms) for x in ['train', 'valid']
         }
 
         dataloaders = {x: DataLoader(
@@ -439,19 +441,17 @@ def main():
         modelR.load_state_dict(torch.load(opt.Rnet))
         print_network(modelR)
 
-    # MSE loss
-    # TODO: loss function change
-    # criterion = nn.MSELoss() + GradientLoss()
-
     # 开始训练！
     if opt.test == '':
         # setup optimizer  beta1=0.9, beta2=0.999
         optimizerH = torch.optim.Adam(modelH.parameters(), lr=opt.lr, betas=(opt.beta1, opt.beta2))
-        optimizerR = torch.optim.Adam(modelR.parameters(), lr=opt.lr, betas=(0.5, 0.999))
+        optimizerR = torch.optim.Adam(modelR.parameters(), lr=opt.lr, betas=(opt.beta1, opt.beta2))
 
         # 训练策略，学习率下降, 若训练集的loss值一直不变，就调小学习率
         # schedulerH = ReduceLROnPlateau(optimizerH, mode='min', factor=0.2, patience=5, verbose=True)
         # schedulerR = ReduceLROnPlateau(optimizerR, mode='min', factor=0.2, patience=8, verbose=True)
+        schedulerH = torch.optim.lr_scheduler.ExponentialLR(optimizerH, gamma=0.8)
+        schedulerR = torch.optim.lr_scheduler.ExponentialLR(optimizerR, gamma=0.8)
         print_log("training is beginning ......................................", logPath)
 
         for epoch in range(opt.epochs):

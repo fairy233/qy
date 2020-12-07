@@ -2,7 +2,8 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
-
+import cv2
+import numpy as np
 
 def gradient_loss(gen_frames, gt_frames):
     # kernel_x = [[0, 0, 0],
@@ -45,6 +46,8 @@ def mse_loss(gen_frames, gt_frames):
 
 def log_mse_loss(gen_frames, gt_frames, esp=1e-5):
     log_mse = (torch.log(gen_frames + esp) - torch.log(gt_frames + esp)) ** 2
+    # print(log_mse)
+    # print(torch.mean(log_mse))
     return torch.mean(log_mse)
 
 
@@ -114,3 +117,15 @@ def loss2(gen_frames, gt_frames, alpha=0.01):
 
 # def pu_ssim_loss (gen_frames, gt_frames):
 # return 0
+
+def cv2torch(np_img):
+    rgb = np_img[:, :, (2, 1, 0)].astype(np.float32)
+    return torch.from_numpy(rgb.swapaxes(1, 2).swapaxes(0, 1))
+
+# img1 = cv2.imread('hdr/train1/1_0.hdr', flags=cv2.IMREAD_ANYDEPTH + cv2.IMREAD_COLOR)
+# img2 = cv2.imread('hdr/train1/1_1.hdr', flags=cv2.IMREAD_ANYDEPTH + cv2.IMREAD_COLOR)
+# img1 = cv2torch(img1)  # 转为(3,256,256) tensor
+# img2 = cv2torch(img2)
+# log_mse = log_mse_loss(img1, img2)
+# color = color_loss(img1, img2)
+# print(log_mse, 'color: ', color)

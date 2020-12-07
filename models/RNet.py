@@ -5,7 +5,7 @@ from torch.utils.checkpoint import checkpoint_sequential
 
 # nhf  特征数量
 class RNet(nn.Module):
-    def __init__(self, colordim=3, nhf=64, output_function=nn.Sigmoid):
+    def __init__(self, colordim=3, nhf=32, output_function=nn.Sigmoid):
         super(RNet, self).__init__()
             
         self.main = nn.Sequential(
