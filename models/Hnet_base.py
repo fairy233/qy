@@ -7,7 +7,7 @@ import torch
 
 
 class HNet(nn.Module):
-    def __init__(self, colordim=3):
+    def __init__(self, colordim=6):
         super(HNet, self).__init__()
         filters = [50, 100, 200, 400]  # 特征的通道数
 
@@ -53,7 +53,7 @@ class HNet(nn.Module):
             nn.ConvTranspose2d(filters[1] * 2, filters[0], kernel_size=2, stride=2, padding=0),
             nn.BatchNorm2d(filters[0]),  # 400
         )
-        self.layer9 = nn.Sequential(
+        self.layer10 = nn.Sequential(
             nn.ConvTranspose2d(filters[0] * 2, 3, kernel_size=2, stride=2, padding=0),
             nn.Sigmoid()
         )

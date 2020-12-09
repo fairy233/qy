@@ -10,8 +10,8 @@ from torch.utils.data import DataLoader
 
 from loss import (loss)
 from models.AverageMeter import AverageMeter
-from models.Hnet_unet2 import HNet
-from models.RNet import RNet
+from models.Hnet_base import HNet
+from models.Rnet_base import RNet
 from models.util import (
     DirectoryDataset,
     cv2torch,
@@ -19,7 +19,7 @@ from models.util import (
     torch2cv,
     hdr2ldr
 )
-
+# main function for hdr images
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -27,13 +27,13 @@ def parse_args():
         '--batch_size', type=int, default=16, help='Batch size.'
     )
     parser.add_argument(
-        '--image_size', type=int, default=64, help='image size'
+        '--image_size', type=int, default=256, help='image size'
     )
     parser.add_argument(
         '--num_workers', type=int, default=0, help='Number of data loading workers.',
     )
     parser.add_argument(
-        '--images_path', type=str, default='./ldr/', help='Path to coverImage data.'
+        '--images_path', type=str, default='./hdr/', help='Path to coverImage data.'
     )
     parser.add_argument(
         '--use_gpu', type=bool, default=True, help='Use GPU for training.'
@@ -57,13 +57,13 @@ def parse_args():
         '--beta', type=float, default=0.75, help='hyper parameter of loss_sum'
     )
     parser.add_argument(
-        '--epochs', type=int, default=600, help='the num of training times'
+        '--epochs', type=int, default=800, help='the num of training times'
     )
     parser.add_argument(
-        '--checkpoint_freq', type=int, default=300, help='Checkpoint model every x epochs.',
+        '--checkpoint_freq', type=int, default=200, help='Checkpoint model every x epochs.',
     )
     parser.add_argument(
-        '--loss_freq', type=int, default=20, help='Report (average) loss every x epochs.',
+        '--loss_freq', type=int, default=10, help='Report (average) loss every x epochs.',
     )
     parser.add_argument(
         '--result_freq', type=int, default=20, help='save the resultPictures every x epochs'
@@ -110,6 +110,7 @@ def transforms(hdr):
     hdr = cv2torch(hdr)  # 转为(3,256,256) tensor
     return hdr
 
+
 def print_log(log_info, log_path, console=True):
     log_info += '\n'
     if console:
@@ -152,14 +153,14 @@ def save_pic(phase, cover, stego, secret, secret_rev, save_path, batch_size, epo
         secret_ldr = (hdr2ldr(secret) * 255).astype(int)
         stego_ldr = (hdr2ldr(stego) * 255).astype(int)
         secret_rev_ldr = (hdr2ldr(secret_rev) * 255).astype(int)
-        
+
         showContainer_ldr = np.hstack((cover_ldr, stego_ldr))
         showReveal_ldr = np.hstack((secret_ldr, secret_rev_ldr))
         resultImg_ldr = np.vstack((showContainer_ldr, showReveal_ldr))
-        
+
         cover_diff = cover - stego
         secret_diff = secret - secret_rev
-        
+
         # diff图像，只在test中保存，且只保存hdr格式
         # cover_diff_ldr = (hdr2ldr(cover_diff) * 255).astype(int)
         # secret_diff_ldr = (hdr2ldr(secret_diff) * 255).astype(int)
@@ -178,44 +179,10 @@ def save_pic(phase, cover, stego, secret, secret_rev, save_path, batch_size, epo
             if phase == 'valid':
                 resultImgName = '%s/valResult_epoch%04d_batch%02d.hdr' % (save_path, epoch, batch_size)
 
-
             # result hdr
             cv2.imwrite(resultImgName, resultImg)
             # result ldr
             cv2.imwrite(resultImgName + '.jpg', resultImg_ldr)
-
-
-def save_pic2(phase, cover, stego, secret, secret_rev, save_path, batch_size, epoch):
-    # save result pictures for ldr images
-    if not opt.debug:
-        # tensor  --> numpy.narray
-        cover = torch2cv(cover*255)
-        secret = torch2cv(secret*255)
-        stego = torch2cv(stego*255)
-        secret_rev = torch2cv(secret_rev*255)
-
-        #  np.vstack  np.hstack
-        showContainer = np.hstack((cover, stego))
-        showReveal = np.hstack((secret, secret_rev))
-        resultImg = np.vstack((showContainer, showReveal))
-
-        cover_diff = cover - stego
-        secret_diff = secret - secret_rev
-
-        diffImg = np.hstack((cover_diff, secret_diff))
-        if phase == 'test':
-            cv2.imwrite('%s/cover_%02d.jpg' % (save_path, epoch), cover)
-            cv2.imwrite('%s/stego_%02d.jpg' % (save_path, epoch), stego)
-            cv2.imwrite('%s/secret_%02d.jpg' % (save_path, epoch), secret)
-            cv2.imwrite('%s/secret_rev_%02d.jpg' % (save_path, epoch), secret_rev)
-            cv2.imwrite('%s/test_diff_%02d.jpg' % (save_path, epoch), diffImg)
-        else:
-            if phase == 'train':
-                resultImgName = '%s/trainResult_epoch%04d_batch%02d.jpg' % (save_path, epoch, batch_size)
-            if phase == 'valid':
-                resultImgName = '%s/valResult_epoch%04d_batch%02d.jpg' % (save_path, epoch, batch_size)
-
-            cv2.imwrite(resultImgName, resultImg)
 
 
 def train(data_loader, epoch, Hnet, Rnet):
@@ -275,7 +242,6 @@ def train(data_loader, epoch, Hnet, Rnet):
             else:
                 with torch.no_grad():
                     stego = Hnet(concat_imgv)
-
                     secret_rev = Rnet(stego)
 
                     errH = loss(stego, cover_imgv)  # loss between cover and container
@@ -296,9 +262,7 @@ def train(data_loader, epoch, Hnet, Rnet):
                     val_Hlosses.update(errH.detach().item(), opt.batch_size)
                     val_Rlosses.update(errR.detach().item(), opt.batch_size)
                     val_SumLosses.update(err_sum.detach().item(), opt.batch_size)
-
-            # if i > 2:
-            #     break
+        # lr 下降
         if phase == 'train' and epoch % 100 == 0 and epoch != 0:
             schedulerH.step()
             schedulerR.step()
@@ -311,23 +275,26 @@ def train(data_loader, epoch, Hnet, Rnet):
         #     print("Early stopping")
         #     break
 
+
         # save pictures and 差异图片
         if (epoch % opt.result_freq == 0) or (epoch == opt.epochs - 1):
             if phase == 'train':
-                save_pic2(phase, cover_img, stego, secret_img, secret_rev, opt.result_pics, opt.batch_size, epoch)
+                save_pic(phase, cover_img, stego, secret_img, secret_rev, opt.result_pics, opt.batch_size, epoch)
             if phase == 'valid':
-                save_pic2(phase, cover_img, stego, secret_img, secret_rev, opt.validation_pics, opt.batch_size, epoch)
+                save_pic(phase, cover_img, stego, secret_img, secret_rev, opt.validation_pics, opt.batch_size, epoch)
 
         # save model params
         if phase == 'train':
             if epoch % opt.checkpoint_freq == 0 or epoch == opt.epochs - 1:
                 torch.save(
                     Hnet.state_dict(),
-                    os.path.join(opt.checkpoint_path, 'H_epoch%04d_sumloss%.6f_lr%.6f.pth' % (epoch, train_SumLosses.avg, opt.lr))
+                    os.path.join(opt.checkpoint_path,
+                                 'H_epoch%04d_sumloss%.6f_lr%.6f.pth' % (epoch, train_SumLosses.avg, opt.lr))
                 )
                 torch.save(
                     Rnet.state_dict(),
-                    os.path.join(opt.checkpoint_path, 'R_epoch%04d_sumloss%.6f_lr%.6f.pth' % (epoch, train_SumLosses.avg, opt.lr))
+                    os.path.join(opt.checkpoint_path,
+                                 'R_epoch%04d_sumloss%.6f_lr%.6f.pth' % (epoch, train_SumLosses.avg, opt.lr))
                 )
 
         # print log
@@ -343,9 +310,11 @@ def train(data_loader, epoch, Hnet, Rnet):
                 optimizerH.param_groups[0]['lr'], optimizerR.param_groups[0]['lr']) + "\n"
             # schedulerH.get_lr()[0] schedulerR.get_lr()[0]
             if phase == 'train':
-                epoch_log += "Hloss=%.6f\t Rloss=%.6f\t sumLoss=%.6f" % (train_Hlosses.avg, train_Rlosses.avg, train_SumLosses.avg) + "\n"
+                epoch_log += "Hloss=%.6f\t Rloss=%.6f\t sumLoss=%.6f" % (
+                train_Hlosses.avg, train_Rlosses.avg, train_SumLosses.avg) + "\n"
             if phase == 'valid':
-                epoch_log += "Hloss=%.6f\t Rloss=%.6f\t sumLoss=%.6f" % (val_Hlosses.avg, val_Rlosses.avg, val_SumLosses.avg) + "\n"
+                epoch_log += "Hloss=%.6f\t Rloss=%.6f\t sumLoss=%.6f" % (
+                val_Hlosses.avg, val_Rlosses.avg, val_SumLosses.avg) + "\n"
 
             print_log(epoch_log, logPath)
 
@@ -382,8 +351,8 @@ def test(data_loader, Hnet, Rnet):
             errH = loss(stego, cover_imgv)  # loss between cover and container
             errR = loss(secret_rev, secret_imgv)  # loss between secret and revealed secret
             err_sum = errH + opt.beta * errR
-        
-        save_pic2('test', cover_img, stego, secret_img, secret_rev, opt.test_pics, opt.batch_size, i)
+
+        save_pic('test', cover_img, stego, secret_img, secret_rev, opt.test_pics, opt.batch_size, i)
 
     log = 'test: loss is %.6f' % (err_sum.item()) + '\n'
     print_log(log, opt.test_log)
@@ -437,20 +406,24 @@ def main():
         }
 
         dataloaders = {x: DataLoader(
-                        image_datasets[x],
-                        batch_size=opt.batch_size,
-                        num_workers=opt.num_workers,
-                        shuffle=True,
-                        drop_last=True) for x in ['train', 'valid']}
+            image_datasets[x],
+            batch_size=opt.batch_size,
+            num_workers=opt.num_workers,
+            shuffle=True,
+            drop_last=True) for x in ['train', 'valid']}
 
         assert dataloaders
+        print_log('train dataset has been prepared!', logPath)
+
     else:  # 测试模式
         # 读取test数据
         print_log('prepare test dataset', opt.test_log)
         test_dir = opt.test
         test_dataset = DirectoryDataset(test_dir, preprocess=transforms)
-        test_loader = DataLoader(test_dataset, batch_size=opt.batch_size, num_workers=opt.num_workers, shuffle=True, drop_last=True)
+        test_loader = DataLoader(test_dataset, batch_size=opt.batch_size, num_workers=opt.num_workers, shuffle=True,
+                                 drop_last=True)
         assert test_loader
+        print_log('test dataset has been prepared!', opt.test_log)
 
     # 初始化模型 Hnet Rnet
     modelH = HNet()
