@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from qy.init_weights import init_weights
+from models.init_weights import init_weights
 
 # 双层卷积
 class unetConv2(nn.Module):
