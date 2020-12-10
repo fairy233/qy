@@ -17,6 +17,8 @@ from models.util import (
     cv2torch,
     random_noise,
     random_crop,
+    normImage,
+    get_e_from_float,
     torch2cv,
     hdr2ldr
 )
@@ -107,20 +109,20 @@ def transforms(hdr):
     # 裁剪
     # h, w = img_size[:2]
     # num = math.ceil(h * w / (256 * 256))  # 每张图裁剪的个数
-    hdr = random_crop(hdr, resize=True)
-
-    # hdr 是一个numpy (256,256,3)
+    hdr = random_crop(hdr, resize=True)   # hdr 是一个numpy (256,256,3)
+    
+    # TODO: 注意通道数改变
+    # 添加指数E分量
+    # e = get_e_from_float(hdr)
+    # hdr = np.concatenate((hdr, e), axis=2)  # hdr 是一个numpy (256,256,4)
+   
     if np.random.rand() < 0.5:
         hdr = cv2.flip(hdr, 1)  # 1 水平翻转 0 垂直翻转 -1 水平垂直翻转
     if np.random.rand() < 0.5:
         hdr = random_noise(hdr)
 
-    # TODO: 归一化
-    minvalue = np.min(hdr)
-    maxvalue = np.max(hdr)
-    # hdr = hdr / maxvalue
-    hdr = (hdr - minvalue) / (maxvalue - minvalue)
-
+    # 归一化
+    hdr = normImage(hdr)
     hdr = cv2torch(hdr)  # 转为(3,256,256) tensor
     return hdr
 
