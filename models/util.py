@@ -388,6 +388,41 @@ def random_crop2(img, sub_im_sc=[6, 6], resize=False, rez_im_sc=[64, 64]):
     return img_crop
 
 
+def get_e_from_float(RGB, normalize='minmax'):
+    # 获取指数E通道，并归一化
+    if RGB.ndim == 3:
+        zeros = np.sum(RGB, axis=2) == 0
+        max_value = np.max(RGB, axis=2)
+        e = np.floor(np.log2(max_value)) + 129
+        e[zeros] = 0
+        if normalize == 'minmax':
+            e_min = np.min(e)
+            e_max = np.max(e)
+            e = (e - e_min) / (e_max - e_min)
+        elif normalize == 'log':
+            e_min = np.min(e)
+            e_max = np.max(e)
+            e = np.log(e + 1 - e_min) / np.log(e_max + 1 - e_min)
+        else:
+            raise NotImplementedError
+        e = np.expand_dims(e, axis=2)
+        return e
+    else:
+        raise NotImplementedError
+
+
+def normImage(hdr, normalize='minmax'):
+    # 图像归一化，两种方式
+    minvalue = np.min(hdr)
+    maxvalue = np.max(hdr)
+    if normalize == 'minmax':
+        hdr = (hdr - minvalue) / (maxvalue - minvalue)
+    elif normalize == 'log':
+        hdr = np.log(hdr + 1 - minvalue) / np.log(maxvalue + 1 - minvalue)
+    else:
+        raise NotImplementedError
+    return hdr
+
 class DirectoryDataset(Dataset):
     def __init__(
         self,
