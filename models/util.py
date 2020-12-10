@@ -329,31 +329,52 @@ def slice_gauss(
 def random_noise(img, im_noise=[0.0, 0.0001]):
     # img = img.astype(np.float32)
     noise = np.random.normal(im_noise[0], im_noise[1], img.shape).astype(np.float32)
+    noise[noise>0.1]=0.1
+    noise[noise<-0.1]=-0.1
     img = img + noise
-    img[img < 1e-5] = 1e-5
-    img[img > 1] = 1  #
+    # img[img < 1e-5] = 1e-5
+    # img[img > 1] = 1  #
     return img
 
 
 # 随机裁剪并随机翻转
 def random_crop(img, sub_im_sc=[6, 6], resize=False, rez_im_sc=[256, 256]):
-# def random_crop(img, sub_im_sc=[6, 6], resize=False, rez_im_sc=[64, 64]):
     sub_im_sc = np.array(sub_im_sc)
     img_size = np.array(img.shape)  # get size [256,256,3]
 
     if sum(img_size[:2] < 256) >= 1:  # img_size[:2] [256,256]
-    # if sum(img_size[:2] < 64) >= 1:
         print('img size error(too small)!')
         raise IndexError
 
     # np.random.rand(2) 生成两个服从均匀分布的随机数（0-1） 最终是2-6 * 128  256-768
     # crop_size 是随机裁剪的宽高。可能不是正方形
     crop_size = (2 + (sub_im_sc - 2) * np.random.rand(2)).astype(np.int) * 128
-    # crop_size = (2 + (sub_im_sc - 2) * np.random.rand(2)).astype(np.int) * 32
     # print('crop_size: ', crop_size)
     # print('img_size: ', img_size)
     crop_size[crop_size >= img_size[:2]] = 256
-    # crop_size[crop_size >= img_size[:2]] = 64
+    h, w = crop_size
+    # print(h,w)
+    h_start, w_start = (np.random.rand(2) * (img_size[:2] - [h, w])).astype(np.int)
+    # print(h_start,w_start)
+
+    img_crop = img[h_start:h_start + h, w_start:w_start + w, :]  # 这个剪裁之后的图片大小不一定是256*256， 是有个范围的
+
+    if resize == True:
+        img_crop = cv2.resize(img_crop, (rez_im_sc[0], rez_im_sc[1]))  # 把裁剪后的图resize到256，256范围
+
+    return img_crop
+
+def random_crop2(img, sub_im_sc=[6, 6], resize=False, rez_im_sc=[64, 64]):
+    sub_im_sc = np.array(sub_im_sc)
+    img_size = np.array(img.shape)
+
+    if sum(img_size[:2] < 64) >= 1:
+        print('img size error(too small)!')
+        raise IndexError
+    crop_size = (2 + (sub_im_sc - 2) * np.random.rand(2)).astype(np.int) * 32
+    # print('crop_size: ', crop_size)
+    # print('img_size: ', img_size)
+    crop_size[crop_size >= img_size[:2]] = 64
     h, w = crop_size
     # print(h,w)
     h_start, w_start = (np.random.rand(2) * (img_size[:2] - [h, w])).astype(np.int)
@@ -397,19 +418,6 @@ class DirectoryDataset(Dataset):
     def __getitem__(self, index):
         img = cv2.imread(self.image_list[index], flags=cv2.IMREAD_ANYDEPTH + cv2.IMREAD_COLOR)
         # img = cv2.imread(self.image_list[index])
-        img_size = np.array(img.shape)
-        if sum(img_size < 256) >= 2:
-        # if sum(img_size < 64) >= 2:
-            raise Exception('img size is too small!')
-        # 裁剪
-        # h, w = img_size[:2]
-        # num = math.ceil(h * w / (256 * 256))  # 每张图裁剪的个数
-        img = random_crop(img, resize=True)
-        # 归一化
-        maxvalue = np.max(img)
-        img = img / maxvalue
-        # img = img / 255
-
         if self.preprocess is not None:
             img = self.preprocess(img)
         return img

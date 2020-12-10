@@ -16,6 +16,7 @@ from models.util import (
     DirectoryDataset,
     cv2torch,
     random_noise,
+    random_crop,
     torch2cv,
     hdr2ldr
 )
@@ -51,7 +52,7 @@ def parse_args():
         '--beta2', type=float, default=0.999, help='beta2 for adam. default=0.999')
     parser.add_argument(
         # 路径可为'./hdr/test'
-        '--test', default='', help='test mode, you need give the test pics dirs in this param'
+        '--test', default='./hdr/test', help='test mode, you need give the test pics dirs in this param'
     )
     parser.add_argument(
         '--beta', type=float, default=0.75, help='hyper parameter of loss_sum'
@@ -88,24 +89,37 @@ def parse_args():
     parser.add_argument(
         # './training1125/checkPoints/H_epoch0150_sumloss=0.001211.pth'
         # "./training1126/checkPoints/H_epoch0150_sumloss=0.000614.pth"
-        '--Hnet', default='', help="path to Hidenet (to continue training)"
+        '--Hnet', default='./training/checkPoints/H_epoch0400_sumloss0.000995_lr0.001000.pth', help="path to Hidenet (to continue training)"
     )
     parser.add_argument(
         # './training1125/checkPoints/R_epoch0150_sumloss=0.001211.pth'
-        '--Rnet', default='', help="path to Revealnet (to continue training)"
+        '--Rnet', default='./training/checkPoints/R_epoch0400_sumloss0.000995_lr0.001000.pth', help="path to Revealnet (to continue training)"
     )
 
     return parser.parse_args()
 
 
-# 对输入图像的预处理的函数--图像增强（图像翻转flip, 高斯噪声）
-# 图像裁剪和归一化放到数据集定义里面了
+# 对输入图像的预处理的函数--图像增强（图像裁剪和归一化,图像翻转flip, 高斯噪声）
 def transforms(hdr):
+    hdr_size = np.array(hdr.shape)
+    if sum(hdr_size < 256) >= 2:
+        raise Exception('img size is too small!')
+    # 裁剪
+    # h, w = img_size[:2]
+    # num = math.ceil(h * w / (256 * 256))  # 每张图裁剪的个数
+    hdr = random_crop(hdr, resize=True)
+
     # hdr 是一个numpy (256,256,3)
     if np.random.rand() < 0.5:
         hdr = cv2.flip(hdr, 1)  # 1 水平翻转 0 垂直翻转 -1 水平垂直翻转
     if np.random.rand() < 0.5:
         hdr = random_noise(hdr)
+
+    # TODO: 归一化
+    minvalue = np.min(hdr)
+    maxvalue = np.max(hdr)
+    # hdr = hdr / maxvalue
+    hdr = (hdr - minvalue) / (maxvalue - minvalue)
 
     hdr = cv2torch(hdr)  # 转为(3,256,256) tensor
     return hdr
@@ -127,12 +141,12 @@ def print_log(log_info, log_path, console=True):
 
 
 # TODO: 打印网络模型, 这个函数没有调用
-def print_network(net):
+def print_network(net, path):
     num_params = 0
     for param in net.parameters():
         num_params += param.numel()
-    print_log(str(net), logPath, console=False)
-    print_log('Total number of parameters: %d' % num_params, logPath, console=False)
+    print_log(str(net), path, console=False)
+    print_log('Total number of parameters: %d' % num_params, path, console=False)
 
 
 def save_pic(phase, cover, stego, secret, secret_rev, save_path, batch_size, epoch):
@@ -437,10 +451,16 @@ def main():
     # whether to load pre-trained model
     if opt.Hnet != '':
         modelH.load_state_dict(torch.load(opt.Hnet))
-        print_network(modelH)
+        if opt.test != '':
+            print_network(modelH, opt.test_log)
+        else:
+            print_network(modelH, logPath)
     if opt.Rnet != '':
         modelR.load_state_dict(torch.load(opt.Rnet))
-        print_network(modelR)
+        if opt.test != '':
+            print_network(modelR, opt.test_log)
+        else:
+            print_network(modelR, logPath)
 
     # 开始训练！
     if opt.test == '':

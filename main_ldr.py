@@ -16,6 +16,7 @@ from models.util import (
     DirectoryDataset,
     cv2torch,
     random_noise,
+    random_crop2,
     torch2cv,
     hdr2ldr
 )
@@ -51,7 +52,7 @@ def parse_args():
         '--beta2', type=float, default=0.999, help='beta2 for adam. default=0.999')
     parser.add_argument(
         # 路径可为'./hdr/test'
-        '--test', default='', help='test mode, you need give the test pics dirs in this param'
+        '--test', default='./ldr/test', help='test mode, you need give the test pics dirs in this param'
     )
     parser.add_argument(
         '--beta', type=float, default=0.75, help='hyper parameter of loss_sum'
@@ -86,12 +87,12 @@ def parse_args():
         '--test_log', default='./test/testLog.txt', help='test log'
     )
     parser.add_argument(
-        # './training1125/checkPoints/H_epoch0150_sumloss=0.001211.pth'
-        # "./training1126/checkPoints/H_epoch0150_sumloss=0.000614.pth"
+        # '--Hnet', default='./training/checkPoints/H_epoch0400_sumloss0.000995_lr0.001000.pth', help="path to Hidenet (to continue training)"
         '--Hnet', default='', help="path to Hidenet (to continue training)"
+
     )
     parser.add_argument(
-        # './training1125/checkPoints/R_epoch0150_sumloss=0.001211.pth'
+        # '--Rnet', default='./training/checkPoints/R_epoch0400_sumloss0.000995_lr0.001000.pth', help="path to Revealnet (to continue training)"
         '--Rnet', default='', help="path to Revealnet (to continue training)"
     )
 
@@ -99,16 +100,20 @@ def parse_args():
 
 
 # 对输入图像的预处理的函数--图像增强（图像翻转flip, 高斯噪声）
-# 图像裁剪和归一化放到数据集定义里面了
-def transforms(hdr):
-    # hdr 是一个numpy (256,256,3)
+def transforms(ldr):
+    ldr_size = np.array(ldr.shape)
+    if sum(ldr_size < 64) >= 2:
+        raise Exception('img size is too small!')
+    ldr = random_crop2(ldr, resize=True)
+    ldr = ldr / 256
     if np.random.rand() < 0.5:
-        hdr = cv2.flip(hdr, 1)  # 1 水平翻转 0 垂直翻转 -1 水平垂直翻转
+        ldr = cv2.flip(ldr, 1)  # 1 水平翻转 0 垂直翻转 -1 水平垂直翻转
     if np.random.rand() < 0.5:
-        hdr = random_noise(hdr)
+        ldr = random_noise(ldr)
 
-    hdr = cv2torch(hdr)  # 转为(3,256,256) tensor
-    return hdr
+    ldr = cv2torch(ldr)  # 转为(3,256,256) tensor
+    return ldr
+
 
 def print_log(log_info, log_path, console=True):
     log_info += '\n'
@@ -125,7 +130,6 @@ def print_log(log_info, log_path, console=True):
                 f.writelines(log_info + '\n')
 
 
-# TODO: 打印网络模型, 这个函数没有调用
 def print_network(net):
     num_params = 0
     for param in net.parameters():
