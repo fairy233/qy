@@ -8,7 +8,7 @@ import torch
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
-from loss import (loss)
+from loss import (loss, loss2)
 from models.AverageMeter import AverageMeter
 from models.Hnet_base import HNet
 from models.Rnet_base import RNet
@@ -27,7 +27,7 @@ from models.util import (
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--batch_size', type=int, default=16, help='Batch size.'
+        '--batch_size', type=int, default=2, help='Batch size.'
     )
     parser.add_argument(
         '--image_size', type=int, default=256, help='image size'
@@ -45,7 +45,7 @@ def parse_args():
         '--debug', type=bool, default=False, help='debug mode do not create folders'
     )
     parser.add_argument(
-        '--lr', type=float, default=0.001, help='learning rate, default=0.001'
+        '--lr', type=float, default=0.0001, help='learning rate, default=0.001'
     )
     parser.add_argument(
         '--beta1', type=float, default=0.9, help='beta1 for adam. default=0.5'
@@ -63,7 +63,7 @@ def parse_args():
         '--epochs', type=int, default=800, help='the num of training times'
     )
     parser.add_argument(
-        '--checkpoint_freq', type=int, default=200, help='Checkpoint model every x epochs.',
+        '--checkpoint_freq', type=int, default=100, help='Checkpoint model every x epochs.',
     )
     parser.add_argument(
         '--loss_freq', type=int, default=10, help='Report (average) loss every x epochs.',
@@ -91,11 +91,11 @@ def parse_args():
     parser.add_argument(
         # './training1125/checkPoints/H_epoch0150_sumloss=0.001211.pth'
         # "./training1126/checkPoints/H_epoch0150_sumloss=0.000614.pth"
-        '--Hnet', default='./training/checkPoints/H_epoch0400_sumloss0.000995_lr0.001000.pth', help="path to Hidenet (to continue training)"
+        '--Hnet', default='./training1211/checkPoints/H_epoch0799_sumloss0.000568_lr0.001000.pth', help="path to Hidenet (to continue training)"
     )
     parser.add_argument(
         # './training1125/checkPoints/R_epoch0150_sumloss=0.001211.pth'
-        '--Rnet', default='./training/checkPoints/R_epoch0400_sumloss0.000995_lr0.001000.pth', help="path to Revealnet (to continue training)"
+        '--Rnet', default='./training1211/checkPoints/R_epoch0799_sumloss0.000568_lr0.001000.pth', help="path to Revealnet (to continue training)"
     )
 
     return parser.parse_args()
@@ -252,22 +252,22 @@ def train(data_loader, epoch, Hnet, Rnet):
                 optimizerH.zero_grad()
                 optimizerR.zero_grad()
 
-                errH = loss(stego, cover_imgv)  # loss between cover and container
-                errR = loss(secret_rev, secret_imgv)  # loss between secret and revealed secret
+                errH = loss2(stego, cover_imgv)  # loss between cover and container
+                errR = loss2(secret_rev, secret_imgv)  # loss between secret and revealed secret
                 err_sum = errH + opt.beta * errR
             else:
                 with torch.no_grad():
                     stego = Hnet(concat_imgv)
                     secret_rev = Rnet(stego)
 
-                    errH = loss(stego, cover_imgv)  # loss between cover and container
-                    errR = loss(secret_rev, secret_imgv)  # loss between secret and revealed secret
+                    errH = loss2(stego, cover_imgv)  # loss between cover and container
+                    errR = loss2(secret_rev, secret_imgv)  # loss between secret and revealed secret
                     err_sum = errH + opt.beta * errR
 
             if phase == 'train':
-                train_Hlosses.update(errH.detach().item(), opt.batch_size)
-                train_Rlosses.update(errR.detach().item(), opt.batch_size)
-                train_SumLosses.update(err_sum.detach().item(), opt.batch_size)
+                train_Hlosses.update(errH.detach().item(), this_batch_size)
+                train_Rlosses.update(errR.detach().item(), this_batch_size)
+                train_SumLosses.update(err_sum.detach().item(), this_batch_size)
 
                 err_sum.backward()
                 optimizerH.step()
@@ -280,8 +280,10 @@ def train(data_loader, epoch, Hnet, Rnet):
                     val_SumLosses.update(err_sum.detach().item(), opt.batch_size)
         # lr 下降
         if phase == 'train' and epoch % 100 == 0 and epoch != 0:
-            schedulerH.step()
-            schedulerR.step()
+            # schedulerH.step()
+            # schedulerR.step()
+            schedulerH.step(errH)
+            schedulerR.step(errR)
 
         # TODO: early stop
         # early_stopping(val_SumLosses.avg, Hnet)
@@ -301,16 +303,16 @@ def train(data_loader, epoch, Hnet, Rnet):
 
         # save model params
         if phase == 'train':
-            if epoch % opt.checkpoint_freq == 0 or epoch == opt.epochs - 1:
+            if (epoch > 300 and epoch % opt.checkpoint_freq == 0) or epoch == opt.epochs - 1:
                 torch.save(
                     Hnet.state_dict(),
                     os.path.join(opt.checkpoint_path,
-                                 'H_epoch%04d_sumloss%.6f_lr%.6f.pth' % (epoch, train_SumLosses.avg, opt.lr))
+                                 'H_epoch%04d_sumloss%.6f_lr%.6f.pth' % (epoch, train_SumLosses.avg, optimizerH.param_groups[0]['lr']))
                 )
                 torch.save(
                     Rnet.state_dict(),
                     os.path.join(opt.checkpoint_path,
-                                 'R_epoch%04d_sumloss%.6f_lr%.6f.pth' % (epoch, train_SumLosses.avg, opt.lr))
+                                 'R_epoch%04d_sumloss%.6f_lr%.6f.pth' % (epoch, train_SumLosses.avg, optimizerR.param_groups[0]['lr']))
                 )
 
         # print log
@@ -335,12 +337,12 @@ def train(data_loader, epoch, Hnet, Rnet):
             print_log(epoch_log, logPath)
 
 
-def test(data_loader, Hnet, Rnet):
+def test(i, data_loader, Hnet, Rnet):
     print_log("---------- test begin ---------", opt.test_log)
     print_log(time.asctime(time.localtime(time.time())), opt.test_log, False)
     Hnet.eval()
     Rnet.eval()
-    for i, data in enumerate(data_loader):
+    for j, data in enumerate(data_loader):
         all_pics = data  # allpics contains cover images and secret images
         this_batch_size = int(all_pics.size()[0] / 2)  # get true batch size of this step
 
@@ -408,9 +410,12 @@ def main():
             print("mkdir failed!")
 
     logPath = opt.log_path + '/train_%d_log.txt' % opt.batch_size
-
-    print_log(time.asctime(time.localtime(time.time())), logPath, False)
-    print_log(str(opt), logPath, False)  # 把所有参数打印在日志中
+    if opt.test == '':
+        print_log(time.asctime(time.localtime(time.time())), logPath, False)
+        print_log(str(opt), logPath, False)  # 把所有参数打印在日志中
+    else:
+        print_log(time.asctime(time.localtime(time.time())), opt.test_log, False)
+        print_log(str(opt), opt.test_log, False)  # 把所有参数打印在日志中
 
     # 准备数据集，分别准备train/val/test
     # 通过判断test是否有值，区分是train/val 还是test模式
@@ -471,20 +476,21 @@ def main():
         optimizerR = torch.optim.Adam(modelR.parameters(), lr=opt.lr, betas=(opt.beta1, opt.beta2))
 
         # 训练策略，学习率下降, 若训练集的loss值一直不变，就调小学习率
-        # schedulerH = ReduceLROnPlateau(optimizerH, mode='min', factor=0.2, patience=5, verbose=True)
-        # schedulerR = ReduceLROnPlateau(optimizerR, mode='min', factor=0.2, patience=8, verbose=True)
-        schedulerH = torch.optim.lr_scheduler.ExponentialLR(optimizerH, gamma=0.8)
-        schedulerR = torch.optim.lr_scheduler.ExponentialLR(optimizerR, gamma=0.8)
+        schedulerH = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizerH, mode='min', factor=0.2, patience=5, verbose=True)
+        schedulerR = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizerR, mode='min', factor=0.2, patience=8, verbose=True)
+        # schedulerH = torch.optim.lr_scheduler.ExponentialLR(optimizerH, gamma=0.8)
+        # schedulerR = torch.optim.lr_scheduler.ExponentialLR(optimizerR, gamma=0.8)
         print_log("training is beginning ......................................", logPath)
 
         for epoch in range(opt.epochs):
             # 只有训练的时候才会计算和更新梯度
             train(dataloaders, epoch, Hnet=modelH, Rnet=modelR)
-            # print_log("train is completed, the result is saved in the ./training", logPath)
 
     # 开始测试！
     else:
-        test(test_loader, Hnet=modelH, Rnet=modelR)
+        for i in range(len(test_loader)):
+        # batch_sampler
+            test(i, test_loader, Hnet=modelH, Rnet=modelR)
 
 
 if __name__ == '__main__':
