@@ -388,7 +388,7 @@ def random_crop2(img, sub_im_sc=[6, 6], resize=False, rez_im_sc=[64, 64]):
     return img_crop
 
 
-def get_e_from_float(RGB, normalize='minmax'):
+def get_e_from_float(RGB, normalize='minmax', esp=1e-5):
     # 获取指数E通道，并归一化
     if RGB.ndim == 3:
         zeros = np.sum(RGB, axis=2) == 0
@@ -398,11 +398,11 @@ def get_e_from_float(RGB, normalize='minmax'):
         if normalize == 'minmax':
             e_min = np.min(e)
             e_max = np.max(e)
-            e = (e - e_min) / (e_max - e_min)
+            e = (e - e_min) / (e_max - e_min + esp)
         elif normalize == 'log':
             e_min = np.min(e)
             e_max = np.max(e)
-            e = np.log(e + 1 - e_min) / np.log(e_max + 1 - e_min)
+            e = np.log(e + 1 - e_min) / (np.log(e_max + 1 - e_min) + esp)
         else:
             raise NotImplementedError
         e = np.expand_dims(e, axis=2)
@@ -411,14 +411,14 @@ def get_e_from_float(RGB, normalize='minmax'):
         raise NotImplementedError
 
 
-def normImage(hdr, normalize='minmax'):
+def normImage(hdr, normalize='minmax', esp=1e-5):
     # 图像归一化，两种方式
     minvalue = np.min(hdr)
     maxvalue = np.max(hdr)
     if normalize == 'minmax':
-        hdr = (hdr - minvalue) / (maxvalue - minvalue)
+        hdr = (hdr - minvalue) / (maxvalue - minvalue + esp)
     elif normalize == 'log':
-        hdr = np.log(hdr + 1 - minvalue) / np.log(maxvalue + 1 - minvalue)
+        hdr = np.log(hdr + 1 - minvalue) / (np.log(maxvalue + 1 - minvalue) + esp)
     else:
         raise NotImplementedError
     return hdr
@@ -442,6 +442,7 @@ class DirectoryDataset(Dataset):
                     for extension in data_extensions
                 ):
                     self.image_list.append(os.path.join(root, fname))
+        # self.image_list = self.image_list[:80]
         if len(image_path) == 0:
             msg = 'Could not find any files with extensions:\n[{0}]\nin\n{1}'
             raise RuntimeError(

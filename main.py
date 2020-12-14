@@ -8,9 +8,9 @@ import torch
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
-from loss import (loss, loss2)
+from loss import (loss, loss2, log_mse_loss, color_loss)
 from models.AverageMeter import AverageMeter
-from models.Hnet_base import HNet
+from models.Hnet_base1 import HNet
 from models.Rnet_base import RNet
 from models.util import (
     DirectoryDataset,
@@ -27,7 +27,7 @@ from models.util import (
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--batch_size', type=int, default=2, help='Batch size.'
+        '--batch_size', type=int, default=16, help='Batch size.'
     )
     parser.add_argument(
         '--image_size', type=int, default=256, help='image size'
@@ -36,7 +36,7 @@ def parse_args():
         '--num_workers', type=int, default=0, help='Number of data loading workers.',
     )
     parser.add_argument(
-        '--images_path', type=str, default='./hdr/', help='Path to coverImage data.'
+        '--images_path', type=str, default='/media/a3080/b696e7b7-1f6d-4f3e-967e-d164ff107a68/qiao/HDR', help='Path to coverImage data.'
     )
     parser.add_argument(
         '--use_gpu', type=bool, default=True, help='Use GPU for training.'
@@ -53,8 +53,8 @@ def parse_args():
     parser.add_argument(
         '--beta2', type=float, default=0.999, help='beta2 for adam. default=0.999')
     parser.add_argument(
-        # 路径可为'./hdr/test'
-        '--test', default='./hdr/test', help='test mode, you need give the test pics dirs in this param'
+        # 路径可为'/media/a3080/b696e7b7-1f6d-4f3e-967e-d164ff107a68/qiao/HDR/test'
+        '--test', default='', help='test mode, you need give the test pics dirs in this param'
     )
     parser.add_argument(
         '--beta', type=float, default=0.75, help='hyper parameter of loss_sum'
@@ -66,10 +66,10 @@ def parse_args():
         '--checkpoint_freq', type=int, default=100, help='Checkpoint model every x epochs.',
     )
     parser.add_argument(
-        '--loss_freq', type=int, default=10, help='Report (average) loss every x epochs.',
+        '--loss_freq', type=int, default=1, help='Report (average) loss every x epochs.',
     )
     parser.add_argument(
-        '--result_freq', type=int, default=20, help='save the resultPictures every x epochs'
+        '--result_freq', type=int, default=10, help='save the resultPictures every x epochs'
     )
     parser.add_argument(
         '--checkpoint_path', default='./training', help='Path for checkpointing.',
@@ -91,11 +91,11 @@ def parse_args():
     parser.add_argument(
         # './training1125/checkPoints/H_epoch0150_sumloss=0.001211.pth'
         # "./training1126/checkPoints/H_epoch0150_sumloss=0.000614.pth"
-        '--Hnet', default='./training1211/checkPoints/H_epoch0799_sumloss0.000568_lr0.001000.pth', help="path to Hidenet (to continue training)"
+        '--Hnet', default='', help="path to Hidenet (to continue training)"
     )
     parser.add_argument(
         # './training1125/checkPoints/R_epoch0150_sumloss=0.001211.pth'
-        '--Rnet', default='./training1211/checkPoints/R_epoch0799_sumloss0.000568_lr0.001000.pth', help="path to Revealnet (to continue training)"
+        '--Rnet', default='', help="path to Revealnet (to continue training)"
     )
 
     return parser.parse_args()
@@ -174,21 +174,20 @@ def save_pic(phase, cover, stego, secret, secret_rev, save_path, batch_size, epo
         showReveal_ldr = np.hstack((secret_ldr, secret_rev_ldr))
         resultImg_ldr = np.vstack((showContainer_ldr, showReveal_ldr))
 
-        cover_diff = cover - stego
-        secret_diff = secret - secret_rev
-
-        # diff图像，只在test中保存，且只保存hdr格式
-        # cover_diff_ldr = (hdr2ldr(cover_diff) * 255).astype(int)
-        # secret_diff_ldr = (hdr2ldr(secret_diff) * 255).astype(int)
-        # diffImg_ldr = np.vstack((cover_diff_ldr, secret_diff_ldr))
-
-        diffImg = np.hstack((cover_diff, secret_diff))
         if phase == 'test':
+            cover_diff = cover - stego
+            secret_diff = secret - secret_rev
+
+            # diff图像，只在test中保存，且只保存jpg格式
+            cover_diff_ldr = (hdr2ldr(cover_diff) * 255).astype(int)
+            secret_diff_ldr = (hdr2ldr(secret_diff) * 255).astype(int)
+            diffImg_ldr = np.vstack((cover_diff_ldr, secret_diff_ldr))
+
             cv2.imwrite('%s/cover_%02d.hdr' % (save_path, epoch), cover)
             cv2.imwrite('%s/stego_%02d.hdr' % (save_path, epoch), stego)
             cv2.imwrite('%s/secret_%02d.hdr' % (save_path, epoch), secret)
             cv2.imwrite('%s/secret_rev_%02d.hdr' % (save_path, epoch), secret_rev)
-            cv2.imwrite('%s/test_diff_%02d.hdr' % (save_path, epoch), diffImg)
+            cv2.imwrite('%s/test_diff_%02d.jpg' % (save_path, epoch), diffImg_ldr)
         else:
             if phase == 'train':
                 resultImgName = '%s/trainResult_epoch%04d_batch%02d.hdr' % (save_path, epoch, batch_size)
@@ -252,19 +251,10 @@ def train(data_loader, epoch, Hnet, Rnet):
                 optimizerH.zero_grad()
                 optimizerR.zero_grad()
 
-                errH = loss2(stego, cover_imgv)  # loss between cover and container
-                errR = loss2(secret_rev, secret_imgv)  # loss between secret and revealed secret
+                errH = log_mse_loss(stego, cover_imgv)  # loss between cover and container
+                errR = log_mse_loss(secret_rev, secret_imgv)  # loss between secret and revealed secret
                 err_sum = errH + opt.beta * errR
-            else:
-                with torch.no_grad():
-                    stego = Hnet(concat_imgv)
-                    secret_rev = Rnet(stego)
 
-                    errH = loss2(stego, cover_imgv)  # loss between cover and container
-                    errR = loss2(secret_rev, secret_imgv)  # loss between secret and revealed secret
-                    err_sum = errH + opt.beta * errR
-
-            if phase == 'train':
                 train_Hlosses.update(errH.detach().item(), this_batch_size)
                 train_Rlosses.update(errR.detach().item(), this_batch_size)
                 train_SumLosses.update(err_sum.detach().item(), this_batch_size)
@@ -273,17 +263,23 @@ def train(data_loader, epoch, Hnet, Rnet):
                 optimizerH.step()
                 optimizerR.step()
 
-            if phase == 'valid':
+            else:
                 with torch.no_grad():
+                    stego = Hnet(concat_imgv)
+                    secret_rev = Rnet(stego)
+
+                    errH = log_mse_loss(stego, cover_imgv)  # loss between cover and container
+                    errR = log_mse_loss(secret_rev, secret_imgv)  # loss between secret and revealed secret
+                    err_sum = errH + opt.beta * errR
+
                     val_Hlosses.update(errH.detach().item(), opt.batch_size)
                     val_Rlosses.update(errR.detach().item(), opt.batch_size)
                     val_SumLosses.update(err_sum.detach().item(), opt.batch_size)
         # lr 下降
-        if phase == 'train' and epoch % 100 == 0 and epoch != 0:
+        # if phase == 'train' and epoch % 100 == 0 and epoch != 0:
             # schedulerH.step()
             # schedulerR.step()
-            schedulerH.step(errH)
-            schedulerR.step(errR)
+
 
         # TODO: early stop
         # early_stopping(val_SumLosses.avg, Hnet)
@@ -335,6 +331,9 @@ def train(data_loader, epoch, Hnet, Rnet):
                 val_Hlosses.avg, val_Rlosses.avg, val_SumLosses.avg) + "\n"
 
             print_log(epoch_log, logPath)
+
+    # use valid loss to adjust lr
+    return val_SumLosses.avg, val_Rlosses.avg
 
 
 def test(i, data_loader, Hnet, Rnet):
@@ -476,15 +475,18 @@ def main():
         optimizerR = torch.optim.Adam(modelR.parameters(), lr=opt.lr, betas=(opt.beta1, opt.beta2))
 
         # 训练策略，学习率下降, 若训练集的loss值一直不变，就调小学习率
-        schedulerH = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizerH, mode='min', factor=0.2, patience=5, verbose=True)
-        schedulerR = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizerR, mode='min', factor=0.2, patience=8, verbose=True)
+        # schedulerH = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizerH, mode='min', factor=0.2, patience=5, verbose=False)
+        # schedulerR = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizerR, mode='min', factor=0.2, patience=8, verbose=False)
         # schedulerH = torch.optim.lr_scheduler.ExponentialLR(optimizerH, gamma=0.8)
         # schedulerR = torch.optim.lr_scheduler.ExponentialLR(optimizerR, gamma=0.8)
         print_log("training is beginning ......................................", logPath)
 
         for epoch in range(opt.epochs):
             # 只有训练的时候才会计算和更新梯度
-            train(dataloaders, epoch, Hnet=modelH, Rnet=modelR)
+            val_sumloss, val_rloss = train(dataloaders, epoch, Hnet=modelH, Rnet=modelR)
+            # use valid loss to adjust lr
+            # schedulerH.step(val_sumloss)  # sumloss ---> Hnet
+            # schedulerR.step(val_rloss)    # rloss ---> Rnet
 
     # 开始测试！
     else:

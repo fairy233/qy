@@ -4,7 +4,7 @@ import torch
 
 # 5个卷积层，conv size/2， k = 2, s = 2, p = 0
 # 5个反卷积层， deconv size*2 k= 2, s = 2, p = 0
-# TODO: + 1conv 3*3 , filters change, channels+1 E
+# TODO: + 1conv 3*3 , filters change
 
 
 
@@ -58,6 +58,7 @@ class HNet(nn.Module):
         )
         self.layer10 = nn.Sequential(
             nn.ConvTranspose2d(filters[0] * 2, filters[0], kernel_size=2, stride=2, padding=0),
+            nn.BatchNorm2d(filters[0]),  # 400
         )
         self.layer11 = nn.Sequential(
             nn.Conv2d(filters[0], 3, kernel_size=3, stride=1, padding=1),  # size
@@ -86,5 +87,7 @@ class HNet(nn.Module):
         x9 = self.relu(torch.cat([x9, x1], dim=1))
 
         x9 = self.layer10(x9)
+        x9 = self.relu(x9)
+        x9 = self.layer11(x9)
 
         return x9

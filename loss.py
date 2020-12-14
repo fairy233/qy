@@ -100,10 +100,10 @@ def loss(gen_frames, gt_frames):
     return mse_loss(gen_frames, gt_frames)
 
 # MSE + gradient
-def loss1(gen_frames, gt_frames):
+def loss1(gen_frames, gt_frames, alpha=0.01):
     gradient = gradient_loss(gen_frames, gt_frames)
     mse = mse_loss(gen_frames, gt_frames)
-    return gradient + mse
+    return alpha * gradient + mse
 
 #  log_mse + color
 def loss2(gen_frames, gt_frames, alpha=0.01):
