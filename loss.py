@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import cv2
 import numpy as np
 
+
 def gradient_loss(gen_frames, gt_frames):
     # kernel_x = [[0, 0, 0],
     #             [-1., 1., 0],
@@ -42,18 +43,35 @@ def gradient_loss(gen_frames, gt_frames):
 
 def mse_loss(gen_frames, gt_frames):
     loss = nn.MSELoss().cuda()
-    return torch.mean(loss(gen_frames, gt_frames))
+    return loss(gen_frames, gt_frames)
+
+
+def l1_loss(gen_frames, gt_frames):
+    loss = nn.L1Loss().cuda()
+    return loss(gen_frames, gt_frames)
+
 
 def log_mse_loss(gen_frames, gt_frames, esp=1e-5):
-    log_mse = (torch.log(gen_frames + esp) - torch.log(gt_frames + esp)) ** 2
+    # log_mse = (torch.log(gen_frames + esp) - torch.log(gt_frames + esp)) ** 2
     # print(log_mse)
     # print(torch.mean(log_mse))
-    return torch.mean(log_mse)
+    # return torch.mean(log_mse)
+    mse = nn.MSELoss().cuda()
+    log_mse = mse(torch.log(gen_frames + esp), torch.log(gt_frames + esp))
+    return log_mse
 
 
 def color_loss(gen_frames, gt_frames):
-    loss_color = (get_hue_value(gen_frames) - get_hue_value(gt_frames)) ** 2
-    return torch.mean(loss_color)
+    # loss_color = (get_hue_value(gen_frames) - get_hue_value(gt_frames)) ** 2
+    # return torch.mean(loss_color)
+    mse = nn.MSELoss().cuda()
+    loss_color = mse(get_hue_value(gen_frames), get_hue_value(gt_frames))
+    return loss_color
+
+
+def cosin_loss(gen_frames, gt_frames):
+    loss = torch.nn.CosineSimilarity(dim=1, eps=1e-20)
+    return torch.mean(1 - loss(gen_frames, gt_frames))
 
 
 # 将hdr图像从RGB空间----> HSV空间，得到H通道的值
@@ -95,15 +113,18 @@ def get_hue_value(img):
     # print(img_hue.shape)
     return img_hue / 360
 
+
 # single MSE loss
 def loss(gen_frames, gt_frames):
     return mse_loss(gen_frames, gt_frames)
+
 
 # MSE + gradient
 def loss1(gen_frames, gt_frames, alpha=0.01):
     gradient = gradient_loss(gen_frames, gt_frames)
     mse = mse_loss(gen_frames, gt_frames)
-    return alpha * gradient + mse
+    return  mse + alpha * gradient
+
 
 #  log_mse + color
 def loss2(gen_frames, gt_frames, alpha=0.01):
@@ -111,12 +132,13 @@ def loss2(gen_frames, gt_frames, alpha=0.01):
     loss_color = color_loss(gen_frames, gt_frames)
     return log_mse + alpha * loss_color
 
-# loss2 = nn.MSELoss().cuda() + gradient_loss_()
-# loss3 = nn.MSELoss().cuda() + pu_ssim_loss_()
 
+# L1loss + cosin
+def loss3(gen_frames, gt_frames, alpha=0.5):
+    l1 = l1_loss(gen_frames, gt_frames)
+    cosin = cosin_loss(gen_frames, gt_frames)
+    return l1 + alpha * cosin
 
-# def pu_ssim_loss (gen_frames, gt_frames):
-# return 0
 
 def cv2torch(np_img):
     rgb = np_img[:, :, (2, 1, 0)].astype(np.float32)

@@ -7,7 +7,6 @@ import torch
 # TODO: + 1conv 3*3 , filters change
 
 
-
 class HNet(nn.Module):
     def __init__(self, colordim=6):
         super(HNet, self).__init__()
@@ -67,7 +66,6 @@ class HNet(nn.Module):
         self.relu = nn.LeakyReLU(inplace=True)
 
     def forward(self, x):
-
         x1 = self.layer1(x)
         x2 = self.layer2(x1)
         x3 = self.layer3(x2)
@@ -86,8 +84,7 @@ class HNet(nn.Module):
         x9 = self.layer9(x8)
         x9 = self.relu(torch.cat([x9, x1], dim=1))
 
-        x9 = self.layer10(x9)
-        x9 = self.relu(x9)
+        x9 = self.relu(self.layer10(x9))
         x9 = self.layer11(x9)
 
         return x9
